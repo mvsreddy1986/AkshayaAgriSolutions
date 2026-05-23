@@ -1,289 +1,268 @@
-const coreSkills = [
-  "SAP ABAP on HANA",
-  "S/4HANA conversions",
-  "CDS Views and AMDP",
-  "OData and Fiori integration",
-  "BAPI, BAdI, User Exits",
-  "Workflow and IDoc/ALE",
-  "Performance tuning",
-  "Technical leadership",
+"use client";
+
+import Link from "next/link";
+
+const CAPABILITIES = [
+  { title: "PDF / Excel Import", body: "Upload Sarvani delivery reports and farmer Excel sheets. System creates draft lots for review and approval — no re-keying." },
+  { title: "Quality Deduction Engine", body: "Date-valid rules for moisture, foreign matter, and cess. Versioned so historical settlements are never recalculated." },
+  { title: "Bulk Invoice Generation", body: "One click generates material-wise, date-wise GST invoices to Sarvani. Invoice numbering, tax computation and PDF rendering included." },
+  { title: "Farmer Payout Register", body: "Track every farmer payment reference against the inward lot — independent of the supplier ledger. Full audit trail for compliance." },
+  { title: "Model B Financing Control", body: "Separate advance control account tracks farmer finance exposure vs Sarvani recovery. Clean double-entry with no manual journals." },
+  { title: "Party Ledgers & Ageing", body: "Drill from outstanding summary to individual invoice in two clicks. Share ledger statements directly with counterparties." },
+  { title: "GST-Ready Invoicing", body: "CGST/SGST/IGST auto-computed, invoice register maintained for each financial year. Supports debit and credit notes." },
+  { title: "KPI Dashboards", body: "Daily supply, receivables, payables, quality trends, material margins, and exception alerts — all on one screen." },
 ];
 
-const projectHighlights = [
+const MODELS = [
   {
-    title: "Global S/4HANA transformation",
-    detail:
-      "Led custom code remediation, interface redesign, and performance optimization for a multi-country rollout.",
-    tags: ["S/4HANA", "ATC", "CDS", "Brownfield"],
+    tag: "Model A",
+    title: "Supplier Aggregation",
+    color: "bg-[#d8ff72] text-[#172018]",
+    points: [
+      "PDF delivery report from Sarvani parsed and converted to draft lots",
+      "Each lot mapped to local supplier + farmer reference",
+      "Quality deductions applied and approved by manager",
+      "Bulk invoices raised to Sarvani",
+      "Separate farmer payout register for audit compliance",
+    ],
   },
   {
-    title: "Manufacturing process automation",
-    detail:
-      "Built resilient ABAP objects, reports, and workflows that improved shop-floor visibility and reduced manual reconciliations.",
-    tags: ["MM", "PP", "Workflow", "Forms"],
+    tag: "Model B",
+    title: "Farmer Financing",
+    color: "bg-[#172018] text-white",
+    points: [
+      "Farmers deliver directly to Sarvani; Akshaya pays upfront",
+      "Excel sheet import for farmer data and weights",
+      "Finance advance control account tracks exposure",
+      "Bulk invoices to Sarvani to recover advance",
+      "Recovery auto-reduces finance exposure balance",
+    ],
   },
   {
-    title: "Finance and logistics integration",
-    detail:
-      "Delivered complex enhancements across FI, SD, and MM with clean interfaces, audit-friendly controls, and stable month-end support.",
-    tags: ["FI", "SD", "MM", "IDoc"],
+    tag: "Model C",
+    title: "Buy and Resell",
+    color: "bg-[#405b3d] text-white",
+    points: [
+      "Purchase DDGS, WDG, CO2, Corn Oil from Sarvani",
+      "Batch-wise stock tracking with quality records",
+      "Trader invoices with retail markup and credit terms",
+      "Margin tracking per material per batch",
+      "Payable to Sarvani and receivable from traders — separate",
+    ],
   },
 ];
 
-const services = [
-  {
-    name: "Architecture and solution design",
-    copy: "Translate business requirements into maintainable SAP technical designs with clear effort, risk, and dependency mapping.",
-  },
-  {
-    name: "Custom development",
-    copy: "Design and build reports, enhancements, interfaces, conversions, forms, and object-oriented ABAP components.",
-  },
-  {
-    name: "Modernization",
-    copy: "Upgrade legacy custom code for S/4HANA readiness, HANA performance, API-led integration, and cleaner extensibility.",
-  },
-  {
-    name: "Delivery governance",
-    copy: "Guide teams through estimation, code reviews, defect triage, transport discipline, and production stabilization.",
-  },
+const MATERIALS = [
+  ["Maize", "1005", "MT", "0%"],
+  ["Paddy Husk", "1213", "MT", "0%"],
+  ["Coal", "2701", "MT", "5%"],
+  ["Biomass", "4401", "MT", "5%"],
+  ["DDGS", "2303", "MT", "0%"],
+  ["WDG", "2309", "MT", "0%"],
+  ["CO2", "2811", "KG", "18%"],
+  ["Corn Oil", "1515", "L", "12%"],
 ];
 
-const metrics = [
-  ["14+", "years of SAP delivery"],
-  ["30+", "end-to-end project phases"],
-  ["8+", "SAP modules supported"],
-  ["24x7", "production-first mindset"],
-];
-
-export default function Home() {
+export default function LandingPage() {
   return (
-    <main className="min-h-screen bg-[#f7f8f4] text-[#17201b]">
-      <section className="relative overflow-hidden border-b border-[#d8ded4] bg-[#eef3ea]">
-        <div className="absolute inset-0 opacity-45 [background-image:linear-gradient(#cbd5c5_1px,transparent_1px),linear-gradient(90deg,#cbd5c5_1px,transparent_1px)] [background-size:44px_44px]" />
-        <div className="relative mx-auto grid min-h-screen max-w-7xl items-center gap-12 px-6 py-8 sm:px-10 lg:grid-cols-[1.04fr_0.96fr] lg:px-12">
-          <div className="max-w-3xl">
-            <nav className="mb-14 flex items-center justify-between gap-4 text-sm font-semibold uppercase tracking-[0.18em] text-[#526053]">
-              <span>SAP ABAP Consultant</span>
-              <a
-                href="#contact"
-                className="rounded-full border border-[#93a18e] px-4 py-2 text-xs tracking-[0.14em] transition hover:border-[#17201b] hover:bg-[#17201b] hover:text-white"
-              >
-                Contact
-              </a>
-            </nav>
-            <p className="mb-5 inline-flex rounded-full bg-white/80 px-4 py-2 text-sm font-semibold text-[#47624b] shadow-sm ring-1 ring-[#d9e0d5]">
-              14+ years delivering SAP programs across enterprise landscapes
-            </p>
-            <h1 className="max-w-4xl text-5xl font-black leading-[0.98] text-[#111814] sm:text-6xl lg:text-7xl">
-              Experienced SAP ABAP consultant for complex business-critical
-              systems.
-            </h1>
-            <p className="mt-7 max-w-2xl text-lg leading-8 text-[#4c5850] sm:text-xl">
-              I help organizations design, build, modernize, and stabilize SAP
-              solutions across S/4HANA, ECC, integrations, workflows, forms,
-              enhancements, and performance-heavy custom development.
-            </p>
-            <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-              <a
-                href="#expertise"
-                className="inline-flex items-center justify-center rounded-md bg-[#17201b] px-6 py-3 text-sm font-bold uppercase tracking-[0.14em] text-white shadow-lg shadow-[#17201b]/15 transition hover:bg-[#2d4937]"
-              >
-                View Expertise
-              </a>
-              <a
-                href="#projects"
-                className="inline-flex items-center justify-center rounded-md border border-[#9aa696] bg-white/70 px-6 py-3 text-sm font-bold uppercase tracking-[0.14em] text-[#17201b] transition hover:border-[#17201b] hover:bg-white"
-              >
-                Project Work
-              </a>
-            </div>
-          </div>
-
-          <div className="relative">
-            <div className="rounded-[2rem] border border-[#cad3c5] bg-white p-5 shadow-2xl shadow-[#72836f]/20">
-              <div className="rounded-[1.5rem] bg-[#17201b] p-5 text-white">
-                <div className="flex items-center justify-between border-b border-white/15 pb-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.22em] text-[#aebdae]">
-                      Delivery cockpit
-                    </p>
-                    <p className="mt-1 text-2xl font-bold">ABAP Excellence</p>
-                  </div>
-                  <div className="grid h-12 w-12 place-items-center rounded-full bg-[#d7ff6a] text-sm font-black text-[#17201b]">
-                    SAP
-                  </div>
-                </div>
-
-                <div className="mt-6 grid gap-3">
-                  {["Design", "Build", "Optimize", "Stabilize"].map(
-                    (stage, index) => (
-                      <div
-                        key={stage}
-                        className="grid grid-cols-[88px_1fr_44px] items-center gap-3"
-                      >
-                        <span className="text-sm text-[#d7dfd3]">{stage}</span>
-                        <span className="h-2 rounded-full bg-white/10">
-                          <span
-                            className="block h-2 rounded-full bg-[#d7ff6a]"
-                            style={{ width: `${88 - index * 11}%` }}
-                          />
-                        </span>
-                        <span className="text-right text-xs font-bold text-[#d7ff6a]">
-                          OK
-                        </span>
-                      </div>
-                    ),
-                  )}
-                </div>
-
-                <div className="mt-8 grid grid-cols-2 gap-3">
-                  {metrics.map(([value, label]) => (
-                    <div
-                      key={label}
-                      className="rounded-2xl border border-white/10 bg-white/[0.06] p-4"
-                    >
-                      <p className="text-3xl font-black text-[#d7ff6a]">
-                        {value}
-                      </p>
-                      <p className="mt-1 text-sm leading-5 text-[#c8d2c5]">
-                        {label}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="expertise" className="mx-auto max-w-7xl px-6 py-20 sm:px-10 lg:px-12">
-        <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr]">
+    <div className="min-h-screen bg-[#eef3e8] text-[#172018]">
+      {/* Nav */}
+      <nav className="sticky top-0 z-50 border-b border-[#c8d4c0] bg-[#eef3e8]/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
           <div>
-            <p className="text-sm font-bold uppercase tracking-[0.22em] text-[#5e755d]">
-              Expertise
-            </p>
-            <h2 className="mt-3 text-4xl font-black leading-tight sm:text-5xl">
-              Deep ABAP capability with business context.
-            </h2>
+            <span className="text-xs font-black uppercase tracking-[0.2em] text-[#60735d]">Akshaya Agri Solutions</span>
+            <span className="ml-3 hidden rounded-full border border-[#c8d4c0] bg-white px-3 py-0.5 text-xs font-bold text-[#60735d] sm:inline">
+              GST Registered · Agriculture Commodity Trading
+            </span>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {coreSkills.map((skill) => (
-              <div
-                key={skill}
-                className="rounded-lg border border-[#d8ded4] bg-white px-5 py-4 text-base font-semibold shadow-sm"
-              >
-                {skill}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="border-y border-[#d8ded4] bg-white">
-        <div className="mx-auto grid max-w-7xl gap-0 px-6 py-20 sm:px-10 lg:grid-cols-4 lg:px-12">
-          {services.map((service) => (
-            <article
-              key={service.name}
-              className="border-[#d8ded4] py-7 lg:border-l lg:px-7 first:lg:border-l-0"
+          <div className="flex items-center gap-3">
+            <Link
+              href="/login"
+              className="rounded-md bg-[#172018] px-5 py-2.5 text-sm font-black text-white transition hover:bg-[#2a3b29]"
             >
-              <h3 className="text-xl font-black">{service.name}</h3>
-              <p className="mt-4 leading-7 text-[#526053]">{service.copy}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section id="projects" className="mx-auto max-w-7xl px-6 py-20 sm:px-10 lg:px-12">
-        <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
-          <div>
-            <p className="text-sm font-bold uppercase tracking-[0.22em] text-[#5e755d]">
-              Project Experience
-            </p>
-            <h2 className="mt-3 max-w-3xl text-4xl font-black leading-tight sm:text-5xl">
-              Built for the realities of enterprise SAP delivery.
-            </h2>
+              Login to ERP
+            </Link>
           </div>
-          <p className="max-w-md leading-7 text-[#526053]">
-            Comfortable across blueprinting, realization, testing, cutover,
-            hypercare, and long-term support.
+        </div>
+      </nav>
+
+      {/* Hero */}
+      <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-24">
+        <div className="max-w-4xl">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#c8d4c0] bg-white px-4 py-2">
+            <span className="h-2 w-2 rounded-full bg-[#4a9e44]" />
+            <span className="text-sm font-bold text-[#405b3d]">Private ERP · Production-ready platform</span>
+          </div>
+          <h1 className="text-5xl font-black leading-[1.03] sm:text-6xl lg:text-7xl">
+            Agriculture commodity ERP for{" "}
+            <span className="text-[#405b3d]">Akshaya Agri Solutions</span>
+          </h1>
+          <p className="mt-7 max-w-2xl text-lg leading-8 text-[#536251]">
+            Manage supplier aggregation, farmer finance, retail resale, PDF and Excel intake,
+            quality deductions, GST invoices, ledgers and KPI reports — all in one secure workspace.
+            Three business models, one audit-ready platform.
           </p>
-        </div>
-
-        <div className="mt-10 grid gap-5 lg:grid-cols-3">
-          {projectHighlights.map((project) => (
-            <article
-              key={project.title}
-              className="rounded-lg border border-[#d8ded4] bg-white p-6 shadow-sm"
+          <div className="mt-10 flex flex-wrap gap-4">
+            <Link
+              href="/login"
+              className="rounded-md bg-[#172018] px-7 py-4 text-base font-black text-white transition hover:bg-[#2a3b29]"
             >
-              <h3 className="text-2xl font-black">{project.title}</h3>
-              <p className="mt-4 leading-7 text-[#526053]">{project.detail}</p>
-              <div className="mt-6 flex flex-wrap gap-2">
-                {project.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full bg-[#edf2e9] px-3 py-1 text-xs font-bold uppercase tracking-[0.12em] text-[#47624b]"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </article>
+              Enter ERP
+            </Link>
+            <a
+              href="#modules"
+              className="rounded-md border border-[#c8d4c0] bg-white px-7 py-4 text-base font-black text-[#172018] transition hover:bg-[#eef3e8]"
+            >
+              See all modules
+            </a>
+          </div>
+        </div>
+      </section>
+
+      {/* Stats band */}
+      <section className="border-y border-[#c8d4c0] bg-white">
+        <div className="mx-auto grid max-w-7xl grid-cols-2 divide-x divide-[#e8ede3] px-5 sm:grid-cols-4 sm:px-8">
+          {[
+            ["3 Business models", "A · B · C in one ledger"],
+            ["8 Materials", "Maize, Coal, DDGS, CO2 + more"],
+            ["GST compliant", "CGST / SGST / IGST invoicing"],
+            ["Full audit trail", "Every edit, approval, reversal"],
+          ].map(([stat, sub]) => (
+            <div key={stat} className="py-8 px-4 text-center">
+              <p className="text-xl font-black">{stat}</p>
+              <p className="mt-1 text-sm text-[#60735d]">{sub}</p>
+            </div>
           ))}
         </div>
       </section>
 
-      <section className="bg-[#17201b] px-6 py-20 text-white sm:px-10 lg:px-12">
-        <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[1fr_1fr]">
-          <div>
-            <p className="text-sm font-bold uppercase tracking-[0.22em] text-[#d7ff6a]">
-              Delivery Style
-            </p>
-            <h2 className="mt-3 text-4xl font-black leading-tight sm:text-5xl">
-              Practical, calm, and accountable from design to go-live.
-            </h2>
-          </div>
-          <div className="grid gap-5">
-            {[
-              "Clear technical designs that business and delivery teams can both trust.",
-              "Clean, reviewable ABAP with attention to performance, supportability, and upgrade readiness.",
-              "Strong coordination with functional consultants, basis, security, QA, and business users.",
-            ].map((item, index) => (
-              <div key={item} className="flex gap-5 border-t border-white/15 pt-5">
-                <span className="text-xl font-black text-[#d7ff6a]">
-                  0{index + 1}
-                </span>
-                <p className="text-lg leading-8 text-[#d8e1d5]">{item}</p>
+      {/* Business Models */}
+      <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-24">
+        <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-[#60735d]">Business Models</p>
+        <h2 className="mb-10 text-4xl font-black">Three flows, one platform</h2>
+        <div className="grid gap-6 lg:grid-cols-3">
+          {MODELS.map((model) => (
+            <div key={model.tag} className="rounded-xl border border-[#c8d4c0] bg-white p-7">
+              <span className={`inline-block rounded-md px-3 py-1 text-xs font-black uppercase tracking-[0.15em] ${model.color}`}>
+                {model.tag}
+              </span>
+              <h3 className="mt-4 text-2xl font-black">{model.title}</h3>
+              <ul className="mt-5 space-y-3">
+                {model.points.map((pt) => (
+                  <li key={pt} className="flex gap-2.5 text-sm leading-6 text-[#536251]">
+                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#4a9e44]" />
+                    {pt}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Capabilities */}
+      <section id="modules" className="border-t border-[#c8d4c0] bg-white py-16 sm:py-24">
+        <div className="mx-auto max-w-7xl px-5 sm:px-8">
+          <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-[#60735d]">Platform Capabilities</p>
+          <h2 className="mb-10 text-4xl font-black">Everything your operations need</h2>
+          <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+            {CAPABILITIES.map((cap) => (
+              <div key={cap.title} className="rounded-xl border border-[#e3e9de] bg-[#f8fbf5] p-6">
+                <h3 className="text-lg font-black">{cap.title}</h3>
+                <p className="mt-3 text-sm leading-7 text-[#536251]">{cap.body}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section id="contact" className="mx-auto max-w-7xl px-6 py-20 sm:px-10 lg:px-12">
-        <div className="grid gap-8 rounded-lg border border-[#d8ded4] bg-white p-8 shadow-sm md:grid-cols-[1fr_auto] md:items-center md:p-10">
-          <div>
-            <p className="text-sm font-bold uppercase tracking-[0.22em] text-[#5e755d]">
-              Available for consulting and project leadership
-            </p>
-            <h2 className="mt-3 text-3xl font-black leading-tight sm:text-4xl">
-              Need reliable SAP ABAP delivery for your next project?
-            </h2>
-            <p className="mt-4 max-w-2xl leading-7 text-[#526053]">
-              Use this site as a professional profile foundation. Add the
-              consultant name, email, certifications, and selected client
-              domains when you are ready to personalize it.
-            </p>
+      {/* Material Master Preview */}
+      <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8 sm:py-24">
+        <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-[#60735d]">Material Master</p>
+        <h2 className="mb-10 text-4xl font-black">8 materials, extensible</h2>
+        <div className="overflow-hidden rounded-xl border border-[#c8d4c0] bg-white">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-[#f3f6ef] text-xs font-black uppercase tracking-[0.12em] text-[#60735d]">
+              <tr>
+                {["Material", "HSN", "UOM", "GST Rate", "Business use"].map((h) => (
+                  <th key={h} className="px-6 py-4">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {MATERIALS.map(([mat, hsn, uom, gst], i) => (
+                <tr key={mat} className={`border-t border-[#edf0e8] ${i % 2 === 0 ? "" : "bg-[#fafcf8]"}`}>
+                  <td className="px-6 py-4 font-black">{mat}</td>
+                  <td className="px-6 py-4 text-[#60735d]">{hsn}</td>
+                  <td className="px-6 py-4 text-[#60735d]">{uom}</td>
+                  <td className="px-6 py-4">
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${gst === "0%" ? "bg-[#e8f5e9] text-[#2e7d32]" : "bg-[#fff3e0] text-[#e65100]"}`}>
+                      {gst}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-[#60735d]">
+                    {["A, B", "A", "A, B, C", "A", "C", "C", "C", "C"][i]}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-4 text-sm text-[#60735d]">
+          More materials can be added at any time via the Material Master module. Each material carries its own HSN, GST rate, quality parameters, and settlement logic.
+        </p>
+      </section>
+
+      {/* Roles */}
+      <section className="border-t border-[#c8d4c0] bg-[#172018] py-16 text-white sm:py-24">
+        <div className="mx-auto max-w-7xl px-5 sm:px-8">
+          <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-[#d8ff72]">Access Control</p>
+          <h2 className="mb-10 text-4xl font-black">Role-based access</h2>
+          <div className="grid gap-6 lg:grid-cols-3">
+            {[
+              { role: "Admin", color: "bg-[#d8ff72] text-[#172018]", caps: ["All modules and configuration", "Approve invoices and quality rules", "Release payments", "Manage users, roles, and GST setup", "Full audit log access"] },
+              { role: "Manager", color: "bg-white/20 text-white", caps: ["Approve transactions and settlements", "Set and approve quality rules", "View all reports and ledgers", "Generate and send invoices", "Cannot manage users or delete data"] },
+              { role: "Clerk", color: "bg-white/10 text-white/80", caps: ["Upload PDF and Excel imports", "Create draft entries and lots", "Map suppliers and farmers", "View assigned modules only", "Cannot post, approve, or delete"] },
+            ].map(({ role, color, caps }) => (
+              <div key={role} className="rounded-xl border border-white/15 p-7">
+                <span className={`inline-block rounded-md px-3 py-1 text-xs font-black uppercase tracking-[0.15em] ${color}`}>{role}</span>
+                <ul className="mt-5 space-y-3">
+                  {caps.map((cap) => (
+                    <li key={cap} className="flex gap-2.5 text-sm leading-6 text-white/75">
+                      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#d8ff72]" />
+                      {cap}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
-          <a
-            href="mailto:consultant@example.com"
-            className="inline-flex items-center justify-center rounded-md bg-[#d7ff6a] px-6 py-3 text-sm font-black uppercase tracking-[0.14em] text-[#17201b] transition hover:bg-[#c7ef58]"
-          >
-            Email Consultant
-          </a>
         </div>
       </section>
-    </main>
+
+      {/* CTA */}
+      <section className="mx-auto max-w-7xl px-5 py-16 text-center sm:px-8 sm:py-24">
+        <h2 className="text-4xl font-black sm:text-5xl">Ready to start?</h2>
+        <p className="mx-auto mt-5 max-w-xl text-lg text-[#536251]">
+          Log in to the ERP workspace. Explore all modules with realistic demo data for Akshaya Agri Solutions and Sarvani Biofuels.
+        </p>
+        <Link
+          href="/login"
+          className="mt-8 inline-block rounded-md bg-[#172018] px-10 py-4 text-base font-black text-white transition hover:bg-[#2a3b29]"
+        >
+          Enter ERP →
+        </Link>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-[#c8d4c0] py-8">
+        <div className="mx-auto max-w-7xl px-5 sm:px-8">
+          <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
+            <p className="text-sm font-black text-[#60735d]">Akshaya Agri Solutions · Private ERP</p>
+            <p className="text-sm text-[#60735d]">GST-registered agriculture commodity trading and settlement · Andhra Pradesh, India</p>
+          </div>
+        </div>
+      </footer>
+    </div>
   );
 }

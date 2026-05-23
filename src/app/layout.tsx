@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SAP ABAP Consultant | 14+ Years Experience",
+  title: "Akshaya Agri Solutions ERP",
   description:
-    "Professional profile for an experienced SAP ABAP consultant with 14+ years delivering enterprise SAP projects.",
+    "Agriculture commodity trading ERP for procurement, financing, resale, GST invoices, ledgers and KPI reports.",
 };
 
 export default function RootLayout({
