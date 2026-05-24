@@ -4,7 +4,8 @@
       "Bash(curl -sf http://localhost:3000/erp)",
       "Bash(curl -sf http://localhost:3000/erp/procurement)",
       "Bash(curl -sf http://localhost:3000/erp/accounting)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(npm run *)"
     ]
   }
 }

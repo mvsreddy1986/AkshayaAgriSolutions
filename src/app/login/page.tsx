@@ -77,7 +77,7 @@ export default function LoginPage() {
           </div>
 
           <p className="text-xs text-[#8a9e87]">
-            Akshaya Agri Solutions · GST Registered · West Godavari, Andhra Pradesh
+            Akshaya Agri Solutions · GST Registered · Addanki, Prakasam Dt, Andhra Pradesh
           </p>
         </div>
 
