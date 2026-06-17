@@ -54,7 +54,7 @@ export interface QualityRule {
   materialId: string;
   materialName: string;
   validFrom: string;
-  validTo: string;
+  validTo: string | null;
   baseMoisture: number;
   moistureDeductionMethod: "linear" | "slab" | "none";
   moistureRatePerPct: number;
@@ -71,7 +71,7 @@ export interface RateMaster {
   materialId: string;
   materialName: string;
   partyId: string | null;
-  partyName: string;
+  partyName: string | null;
   rateType: "GrossSale" | "Purchase" | "Retail";
   rate: number;
   validFrom: string;
@@ -98,7 +98,7 @@ export interface InwardLot {
   acceptedWeight: number;
   moisturePct: number;
   fmPct: number;
-  qualityRuleId: string;
+  qualityRuleId: string | null;
   moistureDeduction: number;
   fmDeduction: number;
   cessAmount: number;
@@ -116,7 +116,7 @@ export interface FarmerPayout {
   batchRef: string;
   farmerId: string;
   farmerName: string;
-  inwardLotId: string;
+  inwardLotId: string | null;
   documentRef: string;
   payoutDate: string;
   materialName: string;

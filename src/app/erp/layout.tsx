@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import type { AuthUser } from "../../lib/types";
@@ -36,6 +36,7 @@ export default function ERPLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
   const [market, setMarket] = useState<MarketState>({
     inrPerTon: inrPerTon(449, 83.4),
     cornCents: 449,
@@ -56,20 +57,27 @@ export default function ERPLayout({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   const refreshMarket = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setMarket((m) => ({ ...m, loading: true }));
     try {
-      const res = await fetch("/api/market/corn", { cache: "no-store" });
+      const res = await fetch("/api/market/corn", { cache: "no-store", signal: controller.signal });
       if (!res.ok) throw new Error();
       const d = await res.json();
       setMarket({ inrPerTon: d.inrPerTon, cornCents: d.cornCents, usdInr: d.usdInr, source: "live", updatedAt: d.updatedAt, loading: false });
-    } catch {
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
       setMarket((m) => ({ ...m, source: "fallback", updatedAt: "Offline", loading: false }));
     }
   }, []);
 
   useEffect(() => {
     const t = setTimeout(refreshMarket, 0);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      abortRef.current?.abort();
+    };
   }, [refreshMarket]);
 
   function logout() {

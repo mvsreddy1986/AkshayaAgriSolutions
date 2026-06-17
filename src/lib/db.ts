@@ -128,7 +128,7 @@ export async function updateParty(id: string, p: Partial<Party>): Promise<Party>
 function qrFromDb(r: Record<string, unknown>): QualityRule {
   return {
     id: str(r.id), materialId: str(r.material_id), materialName: str(r.material_name),
-    validFrom: str(r.valid_from), validTo: str(r.valid_to),
+    validFrom: str(r.valid_from), validTo: nullable(r.valid_to, str),
     baseMoisture: num(r.base_moisture),
     moistureDeductionMethod: str(r.moisture_deduction_method) as QualityRule["moistureDeductionMethod"],
     moistureRatePerPct: num(r.moisture_rate_per_pct),
@@ -182,7 +182,7 @@ export async function updateQualityRule(id: string, q: Partial<QualityRule>): Pr
 function rateFromDb(r: Record<string, unknown>): RateMaster {
   return {
     id: str(r.id), materialId: str(r.material_id), materialName: str(r.material_name),
-    partyId: nullable(r.party_id, str), partyName: str(r.party_name),
+    partyId: nullable(r.party_id, str), partyName: nullable(r.party_name, str),
     rateType: str(r.rate_type) as RateMaster["rateType"],
     rate: num(r.rate), validFrom: str(r.valid_from),
     validTo: nullable(r.valid_to, str),
@@ -236,7 +236,7 @@ function lotFromDb(r: Record<string, unknown>): InwardLot {
     grossWeight: num(r.gross_weight), tareWeight: num(r.tare_weight),
     netWeight: num(r.net_weight), acceptedWeight: num(r.accepted_weight),
     moisturePct: num(r.moisture_pct), fmPct: num(r.fm_pct),
-    qualityRuleId: str(r.quality_rule_id),
+    qualityRuleId: nullable(r.quality_rule_id, str),
     moistureDeduction: num(r.moisture_deduction), fmDeduction: num(r.fm_deduction),
     cessAmount: num(r.cess_amount), netPayableWeight: num(r.net_payable_weight),
     grossSaleRate: num(r.gross_sale_rate), grossSaleValue: num(r.gross_sale_value),
@@ -309,7 +309,7 @@ function payoutFromDb(r: Record<string, unknown>): FarmerPayout {
   return {
     id: str(r.id), batchRef: str(r.batch_ref),
     farmerId: str(r.farmer_id), farmerName: str(r.farmer_name),
-    inwardLotId: str(r.inward_lot_id), documentRef: str(r.document_ref),
+    inwardLotId: nullable(r.inward_lot_id, str), documentRef: str(r.document_ref),
     payoutDate: str(r.payout_date), materialName: str(r.material_name),
     quantity: num(r.quantity), rate: num(r.rate),
     grossAmount: num(r.gross_amount), deductions: num(r.deductions),
@@ -557,6 +557,12 @@ export async function listStock(): Promise<StockBatch[]> {
   const { data, error } = await supabase.from("stock_batches").select("*").order("purchase_date", { ascending: false });
   if (error) throw error;
   return (data ?? []).map(stockFromDb);
+}
+
+export async function getStock(id: string): Promise<StockBatch> {
+  const { data, error } = await supabase.from("stock_batches").select("*").eq("id", id).single();
+  if (error) throw error;
+  return stockFromDb(data as Record<string, unknown>);
 }
 
 export async function createStock(s: Omit<StockBatch, "id">): Promise<StockBatch> {

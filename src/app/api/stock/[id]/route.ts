@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateStock } from "../../../../lib/db";
+import { getStock, updateStock } from "../../../../lib/db";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -8,8 +8,9 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     const { id } = await ctx.params;
     const body = await req.json();
     if (body.openingQty !== undefined || body.soldQty !== undefined) {
-      const openingQty = Number(body.openingQty ?? 0);
-      const soldQty = Number(body.soldQty ?? 0);
+      const current = await getStock(id);
+      const openingQty = body.openingQty !== undefined ? Number(body.openingQty) : current.openingQty;
+      const soldQty = body.soldQty !== undefined ? Number(body.soldQty) : current.soldQty;
       body.availableQty = openingQty - soldQty;
     }
     return NextResponse.json(await updateStock(id, body));

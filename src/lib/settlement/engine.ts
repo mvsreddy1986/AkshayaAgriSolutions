@@ -141,7 +141,7 @@ export function calculateBatchSettlement(
 
   const calculations = lots
     .map((lot) => {
-      const rule = ruleMap.get(lot.qualityRuleId);
+      const rule = lot.qualityRuleId ? ruleMap.get(lot.qualityRuleId) : undefined;
       if (!rule) return null;
       return calculateLotSettlement(lot, rule);
     })
@@ -182,9 +182,9 @@ export function validateLotForSettlement(lot: InwardLot, rules: QualityRule[]): 
     issues.push(`Lot ${lot.documentRef} is in Draft — approve first`);
   }
 
-  const rule = rules.find((r) => r.id === lot.qualityRuleId);
+  const rule = lot.qualityRuleId ? rules.find((r) => r.id === lot.qualityRuleId) : undefined;
   if (!rule) {
-    issues.push(`No quality rule found for lot ${lot.documentRef} (rule ID: ${lot.qualityRuleId})`);
+    issues.push(`No quality rule found for lot ${lot.documentRef} (rule ID: ${lot.qualityRuleId ?? "unset"})`);
   } else if (rule.status === "Draft") {
     issues.push(`Quality rule for lot ${lot.documentRef} is still in Draft status`);
   }

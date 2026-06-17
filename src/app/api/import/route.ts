@@ -24,9 +24,14 @@ function parseDate(val: unknown): string | null {
   if (m) {
     const [, d, mo, y] = m;
     const year = y.length === 2 ? `20${y}` : y;
-    return `${year}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    const candidate = `${year}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    if (isNaN(new Date(candidate).getTime())) return null;
+    return candidate;
   }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    if (isNaN(new Date(s).getTime())) return null;
+    return s;
+  }
   return null;
 }
 

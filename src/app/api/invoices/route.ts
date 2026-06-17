@@ -18,9 +18,9 @@ export async function POST(req: NextRequest) {
     const cgstRate = Number(body.cgstRate ?? 0);
     const sgstRate = Number(body.sgstRate ?? 0);
     const igstRate = Number(body.igstRate ?? 0);
-    const cgstAmount = taxableValue * cgstRate / 100;
-    const sgstAmount = taxableValue * sgstRate / 100;
-    const igstAmount = taxableValue * igstRate / 100;
+    const cgstAmount = Math.round(taxableValue * cgstRate) / 100;
+    const sgstAmount = Math.round(taxableValue * sgstRate) / 100;
+    const igstAmount = Math.round(taxableValue * igstRate) / 100;
     const totalTax = cgstAmount + sgstAmount + igstAmount;
     const totalValue = taxableValue + totalTax;
 

@@ -22,7 +22,9 @@ export default function LoginPage() {
     try {
       const stored = localStorage.getItem("erp_auth");
       if (stored) router.replace("/erp");
-    } catch {}
+    } catch (e) {
+      console.warn("Auth check failed:", e);
+    }
   }, [router]);
 
   function handleSubmit(e: FormEvent) {

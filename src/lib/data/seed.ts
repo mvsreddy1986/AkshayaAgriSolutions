@@ -221,9 +221,9 @@ export const INWARD_LOTS: InwardLot[] = [
     materialId: "mat-004", materialName: "Biomass", customerId: "pty-001", customerName: "Sarvani Biofuels",
     supplierId: "pty-002", supplierName: "Mallikarjuna Traders", farmerId: null, farmerName: null,
     vehicleNo: "AP38AB3333", grossWeight: 8.60, tareWeight: 1.80, netWeight: 6.80, acceptedWeight: 6.72,
-    moisturePct: 12.0, fmPct: 2.0, qualityRuleId: "qr-001",
-    moistureDeduction: 0, fmDeduction: 0.13, cessAmount: 5.88, netPayableWeight: 6.59,
-    grossSaleRate: 3500, grossSaleValue: 23065,
+    moisturePct: 12.0, fmPct: 2.0, qualityRuleId: null,
+    moistureDeduction: 0, fmDeduction: 0, cessAmount: 0, netPayableWeight: 6.72,
+    grossSaleRate: 3500, grossSaleValue: 23520,
     importBatchId: "imp-001", invoiceId: null, status: "Approved", overrideReason: null,
   },
   {
