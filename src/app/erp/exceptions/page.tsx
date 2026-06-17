@@ -11,20 +11,24 @@ import {
 function detectQualityHolds() {
   return lots
     .filter((l) => l.status === "QualityHold")
-    .map((l) => ({
-      id: l.id,
-      ref: l.documentRef,
-      material: l.materialName,
-      date: l.lotDate,
-      party: l.supplierName ?? l.farmerName ?? "—",
-      moisture: l.moisturePct,
-      fm: l.fmPct,
-      netWt: l.netWeight,
-      model: l.businessModel,
-      reason: l.moisturePct > 16 ? `Moisture ${l.moisturePct}% exceeds 16% limit`
-        : l.fmPct > 2 ? `FM ${l.fmPct}% exceeds 2% limit`
-        : "Quality hold — awaiting review",
-    }));
+    .map((l) => {
+      const moisture = Number(l.qualityReadings["moisture_pct"] ?? 0);
+      const fm = Number(l.qualityReadings["fm_pct"] ?? 0);
+      return {
+        id: l.id,
+        ref: l.documentRef,
+        material: l.materialName,
+        date: l.lotDate,
+        party: l.supplierName ?? l.farmerName ?? "—",
+        moisture,
+        fm,
+        netWt: l.netWeight,
+        model: l.businessModel,
+        reason: moisture > 16 ? `Moisture ${moisture}% exceeds 16% limit`
+          : fm > 2 ? `FM ${fm}% exceeds 2% limit`
+          : "Quality hold — awaiting review",
+      };
+    });
 }
 
 function detectUnmatchedLots() {
@@ -649,10 +653,10 @@ export default function ExceptionCenterPage() {
                   <div>
                     <p className="font-semibold text-[#172018]">{r.materialName} — Rule {r.id}</p>
                     <p className="text-xs text-[#5a7360] mt-0.5">
-                      Valid: {r.validFrom} → {r.validTo || "open-ended"} · Base moisture {r.baseMoisture}% · Cess {r.cessRate}%
+                      Valid: {r.validFrom} → {r.validTo || "open-ended"} · Cess {r.globalCessRate}% · Pricing: {r.pricingModel}
                     </p>
                     <p className="text-xs text-[#5a7360] mt-0.5">
-                      Moisture: {r.moistureDeductionMethod} @₹{r.moistureRatePerPct}/MT/% · FM: {r.fmDeductionMethod} @₹{r.fmRatePerPct}/MT/%
+                      {r.paramRules.length} param rule(s) configured
                     </p>
                   </div>
                   <div className="text-right">

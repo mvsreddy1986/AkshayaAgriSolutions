@@ -23,8 +23,8 @@ function matFromDb(r: Record<string, unknown>): Material {
     gstRate: num(r.gst_rate),
     category: str(r.category) as Material["category"],
     defaultGrossSaleRate: num(r.default_gross_sale_rate),
-    settlementMethod: str(r.settlement_method),
-    qualityParams: arr(r.quality_params),
+    pricingModel: (str(r.pricing_model) || "deduction") as Material["pricingModel"],
+    params: Array.isArray(r.params) ? (r.params as Material["params"]) : [],
     status: str(r.status) as Material["status"],
   };
 }
@@ -38,8 +38,8 @@ function matToDb(m: Partial<Material>): Record<string, unknown> {
   if (m.gstRate !== undefined) o.gst_rate = m.gstRate;
   if (m.category !== undefined) o.category = m.category;
   if (m.defaultGrossSaleRate !== undefined) o.default_gross_sale_rate = m.defaultGrossSaleRate;
-  if (m.settlementMethod !== undefined) o.settlement_method = m.settlementMethod;
-  if (m.qualityParams !== undefined) o.quality_params = m.qualityParams;
+  if (m.pricingModel !== undefined) o.pricing_model = m.pricingModel;
+  if (m.params !== undefined) o.params = m.params;
   if (m.status !== undefined) o.status = m.status;
   return o;
 }
@@ -128,14 +128,12 @@ export async function updateParty(id: string, p: Partial<Party>): Promise<Party>
 function qrFromDb(r: Record<string, unknown>): QualityRule {
   return {
     id: str(r.id), materialId: str(r.material_id), materialName: str(r.material_name),
+    pricingModel: (str(r.pricing_model) || "deduction") as QualityRule["pricingModel"],
     validFrom: str(r.valid_from), validTo: nullable(r.valid_to, str),
-    baseMoisture: num(r.base_moisture),
-    moistureDeductionMethod: str(r.moisture_deduction_method) as QualityRule["moistureDeductionMethod"],
-    moistureRatePerPct: num(r.moisture_rate_per_pct),
-    fmDeductionMethod: str(r.fm_deduction_method) as QualityRule["fmDeductionMethod"],
-    fmRatePerPct: num(r.fm_rate_per_pct),
-    cessRate: num(r.cess_rate), allowedVariancePct: num(r.allowed_variance_pct),
+    globalCessRate: num(r.global_cess_rate),
+    allowedVariancePct: num(r.allowed_variance_pct),
     description: str(r.description), status: str(r.status) as QualityRule["status"],
+    paramRules: Array.isArray(r.param_rules) ? (r.param_rules as QualityRule["paramRules"]) : [],
   };
 }
 
@@ -144,17 +142,14 @@ function qrToDb(q: Partial<QualityRule>): Record<string, unknown> {
   if (q.id !== undefined) o.id = q.id;
   if (q.materialId !== undefined) o.material_id = q.materialId;
   if (q.materialName !== undefined) o.material_name = q.materialName;
+  if (q.pricingModel !== undefined) o.pricing_model = q.pricingModel;
   if (q.validFrom !== undefined) o.valid_from = q.validFrom;
   if (q.validTo !== undefined) o.valid_to = q.validTo || null;
-  if (q.baseMoisture !== undefined) o.base_moisture = q.baseMoisture;
-  if (q.moistureDeductionMethod !== undefined) o.moisture_deduction_method = q.moistureDeductionMethod;
-  if (q.moistureRatePerPct !== undefined) o.moisture_rate_per_pct = q.moistureRatePerPct;
-  if (q.fmDeductionMethod !== undefined) o.fm_deduction_method = q.fmDeductionMethod;
-  if (q.fmRatePerPct !== undefined) o.fm_rate_per_pct = q.fmRatePerPct;
-  if (q.cessRate !== undefined) o.cess_rate = q.cessRate;
+  if (q.globalCessRate !== undefined) o.global_cess_rate = q.globalCessRate;
   if (q.allowedVariancePct !== undefined) o.allowed_variance_pct = q.allowedVariancePct;
   if (q.description !== undefined) o.description = q.description;
   if (q.status !== undefined) o.status = q.status;
+  if (q.paramRules !== undefined) o.param_rules = q.paramRules;
   return o;
 }
 
@@ -235,9 +230,11 @@ function lotFromDb(r: Record<string, unknown>): InwardLot {
     vehicleNo: str(r.vehicle_no),
     grossWeight: num(r.gross_weight), tareWeight: num(r.tare_weight),
     netWeight: num(r.net_weight), acceptedWeight: num(r.accepted_weight),
-    moisturePct: num(r.moisture_pct), fmPct: num(r.fm_pct),
+    qualityReadings: (r.quality_readings && typeof r.quality_readings === "object"
+      ? r.quality_readings : {}) as Record<string, number | string>,
     qualityRuleId: nullable(r.quality_rule_id, str),
-    moistureDeduction: num(r.moisture_deduction), fmDeduction: num(r.fm_deduction),
+    paramDeductions: (r.param_deductions && typeof r.param_deductions === "object"
+      ? r.param_deductions : {}) as Record<string, number>,
     cessAmount: num(r.cess_amount), netPayableWeight: num(r.net_payable_weight),
     grossSaleRate: num(r.gross_sale_rate), grossSaleValue: num(r.gross_sale_value),
     importBatchId: nullable(r.import_batch_id, str),
@@ -266,11 +263,9 @@ function lotToDb(l: Partial<InwardLot>): Record<string, unknown> {
   if (l.tareWeight !== undefined) o.tare_weight = l.tareWeight;
   if (l.netWeight !== undefined) o.net_weight = l.netWeight;
   if (l.acceptedWeight !== undefined) o.accepted_weight = l.acceptedWeight;
-  if (l.moisturePct !== undefined) o.moisture_pct = l.moisturePct;
-  if (l.fmPct !== undefined) o.fm_pct = l.fmPct;
+  if (l.qualityReadings !== undefined) o.quality_readings = l.qualityReadings;
   if (l.qualityRuleId !== undefined) o.quality_rule_id = l.qualityRuleId || null;
-  if (l.moistureDeduction !== undefined) o.moisture_deduction = l.moistureDeduction;
-  if (l.fmDeduction !== undefined) o.fm_deduction = l.fmDeduction;
+  if (l.paramDeductions !== undefined) o.param_deductions = l.paramDeductions;
   if (l.cessAmount !== undefined) o.cess_amount = l.cessAmount;
   if (l.netPayableWeight !== undefined) o.net_payable_weight = l.netPayableWeight;
   if (l.grossSaleRate !== undefined) o.gross_sale_rate = l.grossSaleRate;

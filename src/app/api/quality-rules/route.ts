@@ -15,17 +15,14 @@ export async function POST(req: NextRequest) {
     const saved = await createQualityRule({
       materialId: body.materialId ?? "",
       materialName: body.materialName ?? "",
+      pricingModel: body.pricingModel ?? "deduction",
       validFrom: body.validFrom ?? new Date().toISOString().slice(0, 10),
-      validTo: body.validTo ?? "",
-      baseMoisture: Number(body.baseMoisture ?? 14),
-      moistureDeductionMethod: body.moistureDeductionMethod ?? "linear",
-      moistureRatePerPct: Number(body.moistureRatePerPct ?? 0),
-      fmDeductionMethod: body.fmDeductionMethod ?? "actual",
-      fmRatePerPct: Number(body.fmRatePerPct ?? 1),
-      cessRate: Number(body.cessRate ?? 0),
+      validTo: body.validTo || null,
+      globalCessRate: Number(body.globalCessRate ?? body.cessRate ?? 0),
       allowedVariancePct: Number(body.allowedVariancePct ?? 2),
       description: body.description ?? "",
       status: body.status ?? "Draft",
+      paramRules: Array.isArray(body.paramRules) ? body.paramRules : [],
     });
     return NextResponse.json(saved, { status: 201 });
   } catch (e) {

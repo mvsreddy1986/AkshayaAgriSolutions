@@ -81,8 +81,8 @@ async function importMaterials(rows: Record<string, unknown>[]) {
     gst_rate: Number(r["gst_rate"] ?? r["gst"] ?? 0),
     category: String(r["category"] ?? "Grain").trim(),
     default_gross_sale_rate: Number(r["default_gross_sale_rate"] ?? r["rate"] ?? r["default_rate"] ?? 0),
-    settlement_method: String(r["settlement_method"] ?? r["settlement"] ?? "Accepted weight").trim(),
-    quality_params: String(r["quality_params"] ?? r["quality"] ?? "Moisture %, Foreign matter %").split(/[,;]+/).map((s: string) => s.trim()).filter(Boolean),
+    pricing_model: String(r["pricing_model"] ?? "deduction").trim(),
+    params: [],
     status: String(r["status"] ?? "Active").trim(),
   })).filter((m) => m.name);
 
@@ -106,14 +106,24 @@ async function importInwardLots(rows: Record<string, unknown>[]) {
     tare_weight: Number(r["tare_weight"] ?? r["tare"] ?? 0),
     net_weight: Number(r["net_weight"] ?? r["net"] ?? 0),
     accepted_weight: Number(r["accepted_weight"] ?? r["accepted"] ?? r["net_weight"] ?? r["net"] ?? 0),
-    moisture_pct: Number(r["moisture_pct"] ?? r["moisture"] ?? 0),
-    fm_pct: Number(r["fm_pct"] ?? r["fm"] ?? r["foreign_matter"] ?? 0),
-    moisture_deduction: Number(r["moisture_deduction"] ?? 0),
-    fm_deduction: Number(r["fm_deduction"] ?? 0),
     cess_amount: Number(r["cess_amount"] ?? r["cess"] ?? 0),
     net_payable_weight: Number(r["net_payable_weight"] ?? r["net_payable"] ?? r["accepted_weight"] ?? r["accepted"] ?? 0),
     gross_sale_rate: Number(r["gross_sale_rate"] ?? r["rate"] ?? 0),
     gross_sale_value: Number(r["gross_sale_value"] ?? r["value"] ?? 0),
+    // Dynamic quality readings — map common column names to paramKeys
+    quality_readings: {
+      ...(r["moisture_pct"] !== undefined || r["moisture"] !== undefined
+        ? { moisture_pct: Number(r["moisture_pct"] ?? r["moisture"] ?? 0) } : {}),
+      ...(r["fm_pct"] !== undefined || r["fm"] !== undefined || r["foreign_matter"] !== undefined
+        ? { fm_pct: Number(r["fm_pct"] ?? r["fm"] ?? r["foreign_matter"] ?? 0) } : {}),
+      ...(r["gcv_kcal_kg"] !== undefined || r["gcv"] !== undefined
+        ? { gcv_kcal_kg: Number(r["gcv_kcal_kg"] ?? r["gcv"] ?? 0) } : {}),
+      ...(r["protein_pct"] !== undefined || r["protein"] !== undefined
+        ? { protein_pct: Number(r["protein_pct"] ?? r["protein"] ?? 0) } : {}),
+      ...(r["ash_pct"] !== undefined || r["ash"] !== undefined
+        ? { ash_pct: Number(r["ash_pct"] ?? r["ash"] ?? 0) } : {}),
+    },
+    param_deductions: {},
     status: String(r["status"] ?? "Draft").trim(),
     override_reason: null,
   })).filter((l) => l.vehicle_no || l.document_ref);

@@ -162,10 +162,10 @@ function ModelATab() {
                     <td className="px-4 py-3.5 font-mono text-xs">{lot.vehicleNo}</td>
                     <td className="px-4 py-3.5 font-bold">{lot.acceptedWeight.toFixed(2)}</td>
                     <td className="px-4 py-3.5">
-                      <span className={`font-bold ${lot.moisturePct > 15 ? "text-[#dc2626]" : "text-[#172018]"}`}>{lot.moisturePct}%</span>
+                      {(() => { const v = Number(lot.qualityReadings["moisture_pct"] ?? 0); return <span className={`font-bold ${v > 15 ? "text-[#dc2626]" : "text-[#172018]"}`}>{v}%</span>; })()}
                     </td>
                     <td className="px-4 py-3.5">
-                      <span className={`font-bold ${lot.fmPct > 1.5 ? "text-[#dc2626]" : "text-[#172018]"}`}>{lot.fmPct}%</span>
+                      {(() => { const v = Number(lot.qualityReadings["fm_pct"] ?? 0); return <span className={`font-bold ${v > 1.5 ? "text-[#dc2626]" : "text-[#172018]"}`}>{v}%</span>; })()}
                     </td>
                     <td className="px-4 py-3.5 text-[#536251]">{lot.supplierName ?? <span className="text-[#dc2626] font-bold">Unmapped</span>}</td>
                     <td className="px-4 py-3.5 text-[#536251]">{lot.farmerName ?? "—"}</td>
@@ -345,9 +345,9 @@ function WeighmentTab() {
                     <td className="px-4 py-3.5 text-[#536251]">{lot.tareWeight.toFixed(2)}</td>
                     <td className="px-4 py-3.5">{lot.netWeight.toFixed(2)}</td>
                     <td className="px-4 py-3.5 font-bold">{lot.acceptedWeight.toFixed(2)}</td>
-                    <td className="px-4 py-3.5 font-bold">{lot.moisturePct}%</td>
-                    <td className="px-4 py-3.5 font-bold">{lot.fmPct}%</td>
-                    <td className="px-4 py-3.5 text-[#dc2626] font-bold">{(lot.moistureDeduction + lot.fmDeduction).toFixed(3)}</td>
+                    <td className="px-4 py-3.5 font-bold">{Number(lot.qualityReadings["moisture_pct"] ?? 0)}%</td>
+                    <td className="px-4 py-3.5 font-bold">{Number(lot.qualityReadings["fm_pct"] ?? 0)}%</td>
+                    <td className="px-4 py-3.5 text-[#dc2626] font-bold">{(lot.netWeight - lot.netPayableWeight).toFixed(3)}</td>
                     <td className="px-4 py-3.5 font-black">{lot.netPayableWeight.toFixed(2)}</td>
                     <td className="px-4 py-3.5"><StatusBadge status={lot.status} /></td>
                     <td className="px-4 py-3.5">

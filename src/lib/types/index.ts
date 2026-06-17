@@ -1,3 +1,5 @@
+// ── Primitive enums ────────────────────────────────────────────────────────────
+
 export type UOM = "MT" | "KG" | "L" | "Bag";
 export type MaterialCategory = "Grain" | "Biomass" | "Chemical" | "Byproduct" | "Fuel";
 export type MaterialStatus = "Active" | "Draft" | "Inactive";
@@ -15,6 +17,74 @@ export type UserRole = "Admin" | "Manager" | "Clerk";
 export type Tone = "good" | "warn" | "risk";
 export type Trend = "up" | "down" | "flat";
 
+// ── Quality parameter architecture ────────────────────────────────────────────
+
+/** Whether a parameter is a number or a category. */
+export type ParamType = "quantitative" | "qualitative";
+
+/**
+ * Role this parameter plays in price calculation:
+ * - deduction     → reduces payout from a pre-agreed rate
+ * - rate-slab     → determines the gross sale rate via a lookup table
+ * - reject-trigger → holds the lot if reading exceeds threshold
+ * - info-only     → recorded for audit, no financial effect
+ */
+export type SettlementRole = "deduction" | "rate-slab" | "reject-trigger" | "info-only";
+
+/** How the deduction value / weight is calculated. */
+export type DeductionMethod = "linear" | "slab" | "actual-weight" | "none";
+
+/**
+ * How a material's price is determined:
+ * - deduction  → rate agreed upfront, quality deductions reduce the payout (Maize, DDGS, Biomass)
+ * - rate-slab  → rate is computed from a quality reading like GCV or FFA % (Coal, Paddy Husk, Corn Oil)
+ */
+export type PricingModel = "deduction" | "rate-slab";
+
+/** One band in a quantitative slab table. */
+export interface QuantitativeSlab {
+  from: number;
+  to: number;
+  /** ₹/MT for rate-slab role; ₹/MT/unit-excess for deduction slab. */
+  rate: number;
+}
+
+/** One entry in a qualitative rate/reject table. */
+export interface QualitativeSlab {
+  value: string;
+  /** Fraction of grossSaleRate kept — 1.0 = full, 0.95 = 5% penalty. */
+  rateMultiplier: number;
+  rejectTrigger: boolean;
+}
+
+/** Parameter schema attached to a Material — defines the form and expected inputs. */
+export interface MaterialParam {
+  paramKey: string;      // stable machine key e.g. "moisture_pct", "gcv_kcal_kg"
+  label: string;         // display label e.g. "Moisture %"
+  type: ParamType;
+  uom: string;           // "%", "ppm", "kcal/kg", "grade", "bar", "days"
+  settlementRole: SettlementRole;
+  required: boolean;     // must be recorded before lot leaves Draft
+  sortOrder: number;
+}
+
+/** Settlement rule for one parameter inside a QualityRule (stored as JSONB array). */
+export interface ParameterRule {
+  paramKey: string;
+  label?: string;
+  // Quantitative deduction
+  baseValue?: number;
+  deductionMethod?: DeductionMethod;
+  linearRate?: number;                 // ₹/MT per unit above base (linear method)
+  deductionSlabs?: QuantitativeSlab[]; // tiered ₹/MT/unit deduction slabs
+  rateSlabs?: QuantitativeSlab[];      // rate-slab pricing lookup
+  rejectThreshold?: number;            // auto-QualityHold if reading > this
+  // Qualitative rate / reject
+  qualitativeSlabs?: QualitativeSlab[];
+}
+
+// ── Core entities ─────────────────────────────────────────────────────────────
+
 export interface Material {
   id: string;
   name: string;
@@ -23,8 +93,8 @@ export interface Material {
   gstRate: number;
   category: MaterialCategory;
   defaultGrossSaleRate: number;
-  settlementMethod: string;
-  qualityParams: string[];
+  pricingModel: PricingModel;
+  params: MaterialParam[];   // stored as JSONB; replaces qualityParams: string[]
   status: MaterialStatus;
 }
 
@@ -53,17 +123,14 @@ export interface QualityRule {
   id: string;
   materialId: string;
   materialName: string;
+  pricingModel: PricingModel;
   validFrom: string;
   validTo: string | null;
-  baseMoisture: number;
-  moistureDeductionMethod: "linear" | "slab" | "none";
-  moistureRatePerPct: number;
-  fmDeductionMethod: "actual" | "slab" | "none";
-  fmRatePerPct: number;
-  cessRate: number;
+  globalCessRate: number;      // % applied on net weight × rate (market cess)
   allowedVariancePct: number;
   description: string;
   status: QualityRuleStatus;
+  paramRules: ParameterRule[]; // stored as JSONB
 }
 
 export interface RateMaster {
@@ -96,11 +163,11 @@ export interface InwardLot {
   tareWeight: number;
   netWeight: number;
   acceptedWeight: number;
-  moisturePct: number;
-  fmPct: number;
+  /** Dynamic readings keyed by paramKey — e.g. { moisture_pct: 15.2, fm_pct: 1.1 } */
+  qualityReadings: Record<string, number | string>;
   qualityRuleId: string | null;
-  moistureDeduction: number;
-  fmDeduction: number;
+  /** Monetary deduction (₹) per paramKey — computed by settlement engine. */
+  paramDeductions: Record<string, number>;
   cessAmount: number;
   netPayableWeight: number;
   grossSaleRate: number;

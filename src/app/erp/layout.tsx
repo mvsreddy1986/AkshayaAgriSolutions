@@ -16,6 +16,7 @@ const NAV = [
   { key: "reports",      href: "/erp/reports",        label: "Reports & KPIs",    short: "MIS and exports" },
   { key: "exceptions",   href: "/erp/exceptions",     label: "Exception Center",  short: "Quality holds, alerts", badge: "3" },
   { key: "admin",        href: "/erp/admin",          label: "Administration",    short: "Users and controls" },
+  { key: "testing",      href: "/erp/testing",        label: "Testing & QA",      short: "Flows, logic, data reset", adminOnly: true },
 ];
 
 type MarketState = {
@@ -132,7 +133,7 @@ export default function ERPLayout({ children }: { children: React.ReactNode }) {
           </div>
 
           <nav className="mt-4 grid gap-1">
-            {NAV.map((item) => {
+            {NAV.filter((item) => !("adminOnly" in item) || user.role === "Admin").map((item) => {
               const active = item.key === activeNav.key;
               return (
                 <Link
