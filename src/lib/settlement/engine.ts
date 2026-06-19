@@ -26,8 +26,13 @@ export interface SettlementCalc {
   totalValueDeduction: number;   // informational — actual payout uses weight reduction
   netPayableWeight: number;
   grossSaleValue: number;        // netPayableWeight × grossSaleRate
-  cessAmount: number;            // globalCessRate% × netWeight × grossSaleRate
-  netSettlementValue: number;    // grossSaleValue − cessAmount
+  effectiveCessRate: number;     // rate used (from material master or quality rule)
+  cessTotal: number;             // effectiveCessRate% × grossSaleValue
+  cessPaid: number;              // amount already paid at mandi gate (from lot readings)
+  cessBalance: number;           // cessTotal − cessPaid (flows through this settlement)
+  cessAmount: number;            // = cessBalance (backward-compat alias)
+  holdPenalty: number;           // ₹ additional deduction for accepting out-of-spec lot
+  netSettlementValue: number;    // grossSaleValue − cessBalance − holdPenalty
   hasRejectTrigger: boolean;
   rejectedParams: string[];
 }
@@ -55,7 +60,7 @@ export interface BatchSettlementSummary {
  *   grossSaleRate is computed first from the primary rate-slab parameter reading,
  *   then secondary deductions (moisture etc.) are applied using that rate.
  */
-export function calculateLotSettlement(lot: InwardLot, rule: QualityRule): SettlementCalc {
+export function calculateLotSettlement(lot: InwardLot, rule: QualityRule, materialCessRate?: number): SettlementCalc {
   const netWt = lot.netWeight;
 
   // Step 1 — resolve grossSaleRate
@@ -79,11 +84,18 @@ export function calculateLotSettlement(lot: InwardLot, rule: QualityRule): Settl
   let hasRejectTrigger = false;
   const rejectedParams: string[] = [];
 
+  // When a held lot is accepted without a fixed penalty, extend normal deduction
+  // through the reject threshold instead of showing zero (HOLD TRIGGER).
+  const extendThroughReject =
+    lot.status !== "QualityHold" &&
+    !!lot.overrideReason &&
+    (lot.holdPenalty ?? 0) === 0;
+
   for (const pr of rule.paramRules) {
     const reading = lot.qualityReadings[pr.paramKey];
     if (reading === undefined || reading === null) continue;
 
-    const calc = calcParam(pr, reading, netWt, grossSaleRate);
+    const calc = calcParam(pr, reading, netWt, grossSaleRate, extendThroughReject);
     paramCalcs.push(calc);
     totalWeightDeductionKg += calc.weightDeductionKg;
     if (calc.rejectTrigger) {
@@ -95,9 +107,18 @@ export function calculateLotSettlement(lot: InwardLot, rule: QualityRule): Settl
   // Step 3 — settlement totals
   const netPayableWeight = Math.max(0, netWt - totalWeightDeductionKg / 1000);
   const grossSaleValue = r2(netPayableWeight * grossSaleRate);
-  const cessAmount = r2((rule.globalCessRate / 100) * netWt * grossSaleRate);
+  // Cess rate: prefer material master rate, fall back to quality rule rate
+  const effectiveCessRate = materialCessRate !== undefined ? materialCessRate : rule.globalCessRate;
+  // Total cess = rate% × gross notional (actual weighbridge weight × rate, before quality deductions)
+  const cessTotal = r2((effectiveCessRate / 100) * netWt * grossSaleRate);
+  // Paid at mandi gate (from quality check readings) — already settled, shown as info
+  const cessPaid = r2(Math.min(lot.cessAmount > 0 ? lot.cessAmount : 0, cessTotal));
+  // Only the balance flows through this settlement
+  const cessBalance = r2(cessTotal - cessPaid);
+  const cessAmount = cessBalance;
+  const holdPenalty = r2(lot.holdPenalty ?? 0);
   const totalValueDeduction = r2(paramCalcs.reduce((s, c) => s + c.valueDeduction, 0));
-  const netSettlementValue = r2(grossSaleValue - cessAmount);
+  const netSettlementValue = r2(grossSaleValue - cessBalance - holdPenalty);
 
   return {
     lotId: lot.id,
@@ -109,7 +130,12 @@ export function calculateLotSettlement(lot: InwardLot, rule: QualityRule): Settl
     totalValueDeduction,
     netPayableWeight,
     grossSaleValue,
+    effectiveCessRate,
+    cessTotal,
+    cessPaid,
+    cessBalance,
     cessAmount,
+    holdPenalty,
     netSettlementValue,
     hasRejectTrigger,
     rejectedParams,
@@ -141,7 +167,7 @@ export function calculateBatchSettlement(
     totalNetWeight: calculations.reduce((s, c) => s + c.netWeight, 0),
     totalNetPayableWeight: calculations.reduce((s, c) => s + c.netPayableWeight, 0),
     totalGrossSaleValue: calculations.reduce((s, c) => s + c.grossSaleValue, 0),
-    totalDeductions: calculations.reduce((s, c) => s + c.cessAmount, 0),
+    totalDeductions: calculations.reduce((s, c) => s + c.totalValueDeduction + c.cessAmount, 0),
     totalNetSettlement: calculations.reduce((s, c) => s + c.netSettlementValue, 0),
     calculations,
   };
@@ -197,8 +223,39 @@ export function validateLotForSettlement(
   return issues;
 }
 
+// ── Quality loss account mapping ──────────────────────────────────────────────
+
+const QUALITY_ACCOUNTS: Record<string, { code: string; name: string }> = {
+  moisture_pct:       { code: "4101", name: "Quality Loss — Moisture" },
+  moisture:           { code: "4101", name: "Quality Loss — Moisture" },
+  fm_pct:             { code: "4102", name: "Quality Loss — FM" },
+  foreign_matter:     { code: "4102", name: "Quality Loss — FM" },
+  foreign_matter_pct: { code: "4102", name: "Quality Loss — FM" },
+  bg_pct:             { code: "4103", name: "Quality Loss — Broken Grain" },
+  broken_grain:       { code: "4103", name: "Quality Loss — Broken Grain" },
+  broken_grain_pct:   { code: "4103", name: "Quality Loss — Broken Grain" },
+  gcv:                { code: "4110", name: "Quality Loss — GCV" },
+  ash_pct:            { code: "4111", name: "Quality Loss — Ash" },
+  protein_pct:        { code: "4112", name: "Quality Loss — Protein" },
+};
+
+export function paramQualityAccount(paramKey: string): { code: string; name: string } {
+  return QUALITY_ACCOUNTS[paramKey.toLowerCase()] ?? {
+    code: "4199",
+    name: `Quality Loss — ${paramKey}`,
+  };
+}
+
 /**
  * Generates double-entry ledger postings for a settled batch.
+ *
+ * Structure (Option B):
+ *   Dr. 1201  Customer Receivable       net settlement (+ GST if applicable)
+ *   Dr. 5101  Market Cess               total cess across lots
+ *   Dr. 41XX  Quality Loss — <param>    per parameter, weight-based deductions only
+ *   Cr. 3100  Sales — Commodity         gross notional (Σ netWeight × rate per lot)
+ *   Cr. 2201/2202  GST Payable          when gstRate > 0
+ *
  * Running balances must be applied by the caller via applyRunningBalance().
  */
 export function generateSettlementPostings(
@@ -209,54 +266,97 @@ export function generateSettlementPostings(
   invoiceDate: string,
   gstRate: number
 ): LedgerEntry[] {
-  const taxableValue = summary.totalNetSettlement;
-  const gstAmount = taxableValue * gstRate;
-  const totalInvoiceValue = taxableValue + gstAmount;
+  // Gross notional = full net weight × rate (base quality, before any deductions)
+  const grossNotional = r2(
+    summary.calculations.reduce((s, c) => s + c.netWeight * c.grossSaleRate, 0)
+  );
+  const totalCess = r2(summary.calculations.reduce((s, c) => s + c.cessAmount, 0));
+  const totalHoldPenalty = r2(summary.calculations.reduce((s, c) => s + c.holdPenalty, 0));
+  const gstAmount = r2(summary.totalNetSettlement * gstRate);
   const halfGst = r2(gstAmount / 2);
 
-  return [
-    {
-      id: `LE-${invoiceRef}-DR`,
-      entryDate: invoiceDate,
-      accountCode: "1201",
-      accountName: "Sarvani Biofuels Receivable",
-      partyId, partyName,
-      debit: r2(totalInvoiceValue),
-      credit: 0, runningBalance: 0,
-      narration: `Sales invoice ${invoiceRef} — ${summary.lotCount} lots, ${summary.totalNetPayableWeight.toFixed(3)} MT`,
-      sourceType: "Invoice", sourceId: invoiceRef, sourceRef: invoiceRef,
-    },
-    {
-      id: `LE-${invoiceRef}-CR-SALES`,
-      entryDate: invoiceDate,
-      accountCode: "3100",
-      accountName: "Sales - Commodity",
-      partyId: null, partyName: null,
-      debit: 0, credit: r2(taxableValue), runningBalance: 0,
-      narration: `Sales invoice ${invoiceRef} — taxable value`,
-      sourceType: "Invoice", sourceId: invoiceRef, sourceRef: invoiceRef,
-    },
-    {
-      id: `LE-${invoiceRef}-CR-CGST`,
-      entryDate: invoiceDate,
-      accountCode: "2201",
-      accountName: "CGST Payable",
-      partyId: null, partyName: null,
-      debit: 0, credit: halfGst, runningBalance: 0,
-      narration: `CGST on invoice ${invoiceRef}`,
-      sourceType: "Invoice", sourceId: invoiceRef, sourceRef: invoiceRef,
-    },
-    {
-      id: `LE-${invoiceRef}-CR-SGST`,
-      entryDate: invoiceDate,
-      accountCode: "2202",
-      accountName: "SGST Payable",
-      partyId: null, partyName: null,
-      debit: 0, credit: halfGst, runningBalance: 0,
-      narration: `SGST on invoice ${invoiceRef}`,
-      sourceType: "Invoice", sourceId: invoiceRef, sourceRef: invoiceRef,
-    },
-  ];
+  // Aggregate weight-based quality deductions by param key across all lots
+  const paramDeductions = new Map<string, { code: string; name: string; amount: number }>();
+  for (const calc of summary.calculations) {
+    for (const pc of calc.paramCalcs) {
+      if (pc.valueDeduction <= 0 || pc.rejectTrigger || pc.weightDeductionKg === 0) continue;
+      const acc = paramQualityAccount(pc.paramKey);
+      const prev = paramDeductions.get(pc.paramKey);
+      if (prev) {
+        prev.amount = r2(prev.amount + pc.valueDeduction);
+      } else {
+        paramDeductions.set(pc.paramKey, { ...acc, amount: pc.valueDeduction });
+      }
+    }
+  }
+
+  const mk = (
+    suffix: string, accountCode: string, accountName: string,
+    debit: number, credit: number, narration: string,
+    pId: string | null = null, pName: string | null = null
+  ): LedgerEntry => ({
+    id: `LE-${invoiceRef}-${suffix}`,
+    entryDate: invoiceDate,
+    accountCode, accountName,
+    partyId: pId, partyName: pName,
+    debit, credit, runningBalance: 0,
+    narration,
+    sourceType: "Invoice", sourceId: invoiceRef, sourceRef: invoiceRef,
+  });
+
+  const entries: LedgerEntry[] = [];
+
+  // Dr. Customer Receivable
+  entries.push(mk(
+    "DR", "1201", "Sarvani Biofuels Receivable",
+    r2(summary.totalNetSettlement + gstAmount), 0,
+    `Sales invoice ${invoiceRef} — ${summary.lotCount} lots, ${summary.totalNetPayableWeight.toFixed(3)} MT`,
+    partyId, partyName
+  ));
+
+  // Dr. Market Cess
+  if (totalCess > 0) {
+    entries.push(mk(
+      "DR-CESS", "5101", "Market Cess",
+      totalCess, 0,
+      `Market cess — invoice ${invoiceRef}`
+    ));
+  }
+
+  // Dr. Quality Loss per parameter
+  let qlIdx = 0;
+  for (const [paramKey, { code, name, amount }] of paramDeductions) {
+    void paramKey;
+    entries.push(mk(
+      `DR-QL-${qlIdx++}`, code, name,
+      amount, 0,
+      `${name} — invoice ${invoiceRef}`
+    ));
+  }
+
+  // Dr. Quality Hold Penalty
+  if (totalHoldPenalty > 0) {
+    entries.push(mk(
+      "DR-HOLD", "4199", "Quality Loss — Hold Penalty",
+      totalHoldPenalty, 0,
+      `Hold penalty accepted — invoice ${invoiceRef}`
+    ));
+  }
+
+  // Cr. Sales — Commodity (gross notional, ex-GST)
+  entries.push(mk(
+    "CR-SALES", "3100", "Sales - Commodity",
+    0, grossNotional,
+    `Sales invoice ${invoiceRef} — gross notional`
+  ));
+
+  // Cr. GST Payable (only when applicable)
+  if (halfGst > 0) {
+    entries.push(mk("CR-CGST", "2201", "CGST Payable", 0, halfGst, `CGST on invoice ${invoiceRef}`));
+    entries.push(mk("CR-SGST", "2202", "SGST Payable", 0, halfGst, `SGST on invoice ${invoiceRef}`));
+  }
+
+  return entries;
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
@@ -285,7 +385,8 @@ function calcParam(
   pr: ParameterRule,
   reading: number | string,
   netWtMT: number,
-  rate: number
+  rate: number,
+  extendThroughReject = false
 ): ParamCalc {
   const label = pr.label ?? pr.paramKey;
 
@@ -309,9 +410,14 @@ function calcParam(
   const num = Number(reading);
 
   // Reject threshold check
+  let wasHoldExtended = false;
   if (pr.rejectThreshold !== undefined && num > pr.rejectThreshold) {
-    return makeCalc(pr.paramKey, label, num, 0, 0, true,
-      `${num} > reject threshold ${pr.rejectThreshold} → QualityHold`);
+    if (!extendThroughReject) {
+      return makeCalc(pr.paramKey, label, num, 0, 0, true,
+        `${num} > reject threshold ${pr.rejectThreshold} → QualityHold`);
+    }
+    // Lot accepted without fixed penalty — extend normal deduction through threshold
+    wasHoldExtended = true;
   }
 
   // Rate-slab or info-only: rate already computed in step 1, no additional deduction here
@@ -322,13 +428,24 @@ function calcParam(
 
   const baseValue = pr.baseValue ?? 0;
   const excess = Math.max(0, num - baseValue);
+  const extPrefix = wasHoldExtended
+    ? `Extended past reject (${pr.rejectThreshold}) — accepted without penalty · `
+    : "";
 
   switch (pr.deductionMethod) {
     case "linear": {
       const valueDeduction = r2(excess * (pr.linearRate ?? 0) * netWtMT);
       const weightDeductionKg = rate > 0 ? r2((valueDeduction / rate) * 1000) : 0;
       return makeCalc(pr.paramKey, label, num, weightDeductionKg, valueDeduction, false,
-        `(${num} − ${baseValue} base) × ₹${pr.linearRate}/MT/% × ${netWtMT} MT = ₹${valueDeduction.toFixed(2)}`,
+        `${extPrefix}(${num} − ${baseValue} base) × ₹${pr.linearRate}/MT/% × ${netWtMT} MT = ₹${valueDeduction.toFixed(2)}`,
+        { baseValue, excess });
+    }
+
+    case "value-pct": {
+      const weightDeductionKg = r2((excess / 100) * netWtMT * 1000);
+      const valueDeduction = r2((weightDeductionKg / 1000) * rate);
+      return makeCalc(pr.paramKey, label, num, weightDeductionKg, valueDeduction, false,
+        `${extPrefix}(${num} − ${baseValue} base) × ₹${rate}/MT × ${netWtMT} MT / 100 = ₹${valueDeduction.toFixed(2)}`,
         { baseValue, excess });
     }
 
@@ -336,7 +453,7 @@ function calcParam(
       const weightDeductionKg = r2((num / 100) * netWtMT * 1000);
       const valueDeduction = r2((weightDeductionKg / 1000) * rate);
       return makeCalc(pr.paramKey, label, num, weightDeductionKg, valueDeduction, false,
-        `${num}% of ${netWtMT} MT = ${weightDeductionKg.toFixed(2)} kg deducted`,
+        `${extPrefix}${num}% of ${netWtMT} MT = ${weightDeductionKg.toFixed(2)} kg deducted`,
         { baseValue: 0, excess: num });
     }
 
@@ -349,7 +466,7 @@ function calcParam(
       const valueDeduction = r2(excess * slabRate * netWtMT);
       const weightDeductionKg = rate > 0 ? r2((valueDeduction / rate) * 1000) : 0;
       return makeCalc(pr.paramKey, label, num, weightDeductionKg, valueDeduction, false,
-        `Excess ${excess.toFixed(2)}% in slab ₹${slabRate}/MT/% × ${netWtMT} MT = ₹${valueDeduction.toFixed(2)}`,
+        `${extPrefix}Excess ${excess.toFixed(2)}% in slab ₹${slabRate}/MT/% × ${netWtMT} MT = ₹${valueDeduction.toFixed(2)}`,
         { baseValue, excess });
     }
 

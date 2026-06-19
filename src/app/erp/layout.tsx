@@ -4,31 +4,32 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import type { AuthUser } from "../../lib/types";
+import {
+  LayoutDashboard, Database, PackageSearch, Banknote, ShoppingBag,
+  Calculator, FileStack, BarChart3, Settings2,
+  FlaskConical, Menu, X, TrendingUp, TrendingDown, Minus,
+  Search, LogOut, Wheat, RefreshCw, ChevronRight,
+} from "lucide-react";
 
 const NAV = [
-  { key: "command",      href: "/erp",               label: "Command Center",    short: "Daily control tower" },
-  { key: "masters",      href: "/erp/masters",        label: "Master Data",       short: "Parties, materials, quality" },
-  { key: "procurement",  href: "/erp/procurement",    label: "Procurement",       short: "Model A and farmer supply" },
-  { key: "finance",      href: "/erp/finance",        label: "Finance Flow",      short: "Farmer finance exposure" },
-  { key: "sales",        href: "/erp/sales",          label: "Sales & Inventory", short: "Model C resale" },
-  { key: "accounting",   href: "/erp/accounting",     label: "Accounting",        short: "GST, ledgers, payments" },
-  { key: "documents",    href: "/erp/documents",      label: "Document Hub",      short: "PDF, Excel, audit files" },
-  { key: "reports",      href: "/erp/reports",        label: "Reports & KPIs",    short: "MIS and exports" },
-  { key: "exceptions",   href: "/erp/exceptions",     label: "Exception Center",  short: "Quality holds, alerts", badge: "3" },
-  { key: "admin",        href: "/erp/admin",          label: "Administration",    short: "Users and controls" },
-  { key: "testing",      href: "/erp/testing",        label: "Testing & QA",      short: "Flows, logic, data reset", adminOnly: true },
+  { key: "command",     href: "/erp",              label: "Command Center",    short: "Daily control tower",          Icon: LayoutDashboard },
+  { key: "masters",     href: "/erp/masters",       label: "Master Data",       short: "Parties, materials, quality",  Icon: Database },
+  { key: "procurement", href: "/erp/procurement",   label: "Procurement",       short: "Model A & farmer supply",      Icon: PackageSearch },
+  { key: "finance",     href: "/erp/finance",       label: "Finance Flow",      short: "Farmer finance exposure",      Icon: Banknote },
+  { key: "sales",       href: "/erp/sales",         label: "Sales & Inventory", short: "Model C resale",               Icon: ShoppingBag },
+  { key: "accounting",  href: "/erp/accounting",    label: "Accounting",        short: "GST, ledgers, payments",       Icon: Calculator },
+  { key: "documents",   href: "/erp/documents",     label: "Document Hub",      short: "PDF, Excel, audit files",      Icon: FileStack },
+  { key: "reports",     href: "/erp/reports",       label: "Reports & KPIs",    short: "MIS and exports",              Icon: BarChart3 },
+  { key: "admin",       href: "/erp/admin",         label: "Administration",    short: "Users and controls",           Icon: Settings2 },
+  { key: "testing",     href: "/erp/testing",       label: "Testing & QA",      short: "Flows, logic, data reset",     Icon: FlaskConical, adminOnly: true },
 ];
 
 type MarketState = {
-  inrPerTon: number;
-  cornCents: number;
-  usdInr: number;
-  source: "live" | "fallback";
-  updatedAt: string;
-  loading: boolean;
+  inrPerTon: number; cornCents: number; usdInr: number;
+  source: "live" | "fallback"; updatedAt: string; loading: boolean;
 };
 
-function inrPerTon(cornCents: number, usdInr: number) {
+function calcInrPerTon(cornCents: number, usdInr: number) {
   return (cornCents / 100) * usdInr * (2204.62262 / 56);
 }
 
@@ -39,12 +40,9 @@ export default function ERPLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const [market, setMarket] = useState<MarketState>({
-    inrPerTon: inrPerTon(449, 83.4),
-    cornCents: 449,
-    usdInr: 83.4,
-    source: "fallback",
-    updatedAt: "Indicative",
-    loading: false,
+    inrPerTon: calcInrPerTon(449, 83.4),
+    cornCents: 449, usdInr: 83.4,
+    source: "fallback", updatedAt: "Indicative", loading: false,
   });
 
   useEffect(() => {
@@ -52,9 +50,7 @@ export default function ERPLayout({ children }: { children: React.ReactNode }) {
       const stored = localStorage.getItem("erp_auth");
       if (!stored) { router.replace("/login"); return; }
       setUser(JSON.parse(stored) as AuthUser);
-    } catch {
-      router.replace("/login");
-    }
+    } catch { router.replace("/login"); }
   }, [router]);
 
   const refreshMarket = useCallback(async () => {
@@ -75,21 +71,18 @@ export default function ERPLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const t = setTimeout(refreshMarket, 0);
-    return () => {
-      clearTimeout(t);
-      abortRef.current?.abort();
-    };
+    return () => { clearTimeout(t); abortRef.current?.abort(); };
   }, [refreshMarket]);
 
-  function logout() {
-    localStorage.removeItem("erp_auth");
-    router.push("/login");
-  }
+  function logout() { localStorage.removeItem("erp_auth"); router.push("/login"); }
 
   if (!user) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f4f6ef]">
-        <div className="text-sm font-bold text-[#60735d]">Loading workspace…</div>
+      <div className="flex min-h-screen items-center justify-center" style={{ background: "var(--bg)" }}>
+        <div className="flex items-center gap-3">
+          <div className="h-5 w-5 rounded-full border-2 border-[#22c55e] border-t-transparent animate-spin" />
+          <span className="text-sm font-medium" style={{ color: "var(--ink-3)" }}>Loading workspace…</span>
+        </div>
       </div>
     );
   }
@@ -99,128 +92,186 @@ export default function ERPLayout({ children }: { children: React.ReactNode }) {
     if (n.href === "/erp") return pathname === "/erp";
     return pathname.startsWith(n.href);
   }) ?? NAV[0];
-
   const inrFmt = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 
   return (
-    <div className="min-h-screen bg-[#f4f6ef] text-[#172018]">
+    <div className="min-h-screen" style={{ background: "var(--bg)", color: "var(--ink)" }}>
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-20 bg-black/40 xl:hidden"
+          className="fixed inset-0 z-20 xl:hidden"
+          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      <div className="grid min-h-screen xl:grid-cols-[288px_1fr]">
-        {/* Sidebar */}
+      <div className="min-h-screen xl:grid" style={{ gridTemplateColumns: "264px 1fr" }}>
+
+        {/* ── Sidebar ── */}
         <aside
-          className={`fixed inset-y-0 left-0 z-30 w-72 border-r border-white/10 bg-[#172018] px-4 py-5 text-white transition-transform xl:static xl:translate-x-0 xl:w-auto ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
+          className={`fixed inset-y-0 left-0 z-30 w-[264px] flex flex-col xl:static xl:translate-x-0 transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
+          style={{ background: "var(--sidebar-bg)" }}
         >
-          <div className="flex items-start justify-between border-b border-white/15 pb-5">
-            <Link href="/erp">
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-[#d8ff72]">Akshaya ERP</p>
-              <h1 className="mt-1.5 text-xl font-black leading-tight">Commodity Trading Suite</h1>
-              <p className="mt-0.5 text-xs text-white/50">Akshaya Agri Solutions</p>
+          {/* Brand */}
+          <div className="flex items-center justify-between px-5 py-5" style={{ borderBottom: "1px solid var(--sidebar-border)" }}>
+            <Link href="/erp" className="flex items-center gap-3 group min-w-0">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: "var(--brand-glow)", border: "1px solid rgba(34,197,94,0.3)" }}>
+                <Wheat size={18} style={{ color: "#22c55e" }} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold tracking-widest uppercase" style={{ color: "#22c55e", letterSpacing: "0.15em" }}>Akshaya ERP</p>
+                <p className="text-[11px] leading-tight truncate" style={{ color: "var(--sidebar-muted)" }}>Commodity Trading Suite</p>
+              </div>
             </Link>
             <button
               onClick={() => setSidebarOpen(false)}
-              className="rounded-md p-1.5 hover:bg-white/10 xl:hidden"
+              className="flex h-7 w-7 items-center justify-center rounded-lg xl:hidden transition-colors hover:bg-white/10"
+              style={{ color: "var(--sidebar-text)" }}
               aria-label="Close sidebar"
             >
-              ✕
+              <X size={15} />
             </button>
           </div>
 
-          <nav className="mt-4 grid gap-1">
-            {NAV.filter((item) => !("adminOnly" in item) || user.role === "Admin").map((item) => {
+          {/* Nav */}
+          <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
+            {NAV.filter((item) => !item.adminOnly || user.role === "Admin").map((item) => {
               const active = item.key === activeNav.key;
               return (
                 <Link
                   key={item.key}
                   href={item.href}
                   onClick={() => setSidebarOpen(false)}
-                  className={`rounded-lg px-3.5 py-2.5 transition flex items-center justify-between ${active ? "bg-[#d8ff72] text-[#172018]" : "text-[#dbe5d6] hover:bg-white/10"}`}
+                  className="group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-150"
+                  style={{
+                    background: active ? "rgba(34,197,94,0.13)" : "transparent",
+                    borderLeft: active ? "3px solid #22c55e" : "3px solid transparent",
+                  }}
+                  onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = "var(--sidebar-hover)"; }}
+                  onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                 >
-                  <span>
-                    <span className="block text-sm font-black">{item.label}</span>
-                    <span className="mt-0.5 block text-xs opacity-70">{item.short}</span>
-                  </span>
-                  {"badge" in item && item.badge && !active && (
-                    <span className="ml-2 text-xs font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full min-w-5 text-center">
-                      {item.badge}
-                    </span>
-                  )}
+                  <item.Icon
+                    size={16}
+                    className="shrink-0 transition-colors"
+                    style={{ color: active ? "#22c55e" : "var(--sidebar-muted)" }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-semibold leading-tight transition-colors" style={{ color: active ? "#ffffff" : "var(--sidebar-text)" }}>
+                      {item.label}
+                    </p>
+                    <p className="text-[11px] leading-tight truncate mt-0.5" style={{ color: "var(--sidebar-muted)" }}>
+                      {item.short}
+                    </p>
+                  </div>
+                  {active && <ChevronRight size={13} style={{ color: "#22c55e", opacity: 0.7 }} />}
                 </Link>
               );
             })}
           </nav>
 
-          <div className="mt-4 border-t border-white/15 pt-4">
-            <div className="flex items-center justify-between rounded-lg bg-white/10 px-3.5 py-3">
-              <div>
-                <p className="text-sm font-black">{user.name}</p>
-                <p className="text-xs text-white/60">{user.role} · {user.email}</p>
+          {/* User card */}
+          <div className="px-3 pb-4 pt-2" style={{ borderTop: "1px solid var(--sidebar-border)" }}>
+            <div className="flex items-center gap-3 rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,0.06)" }}>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ background: "var(--brand-glow)", color: "#22c55e", border: "1px solid rgba(34,197,94,0.25)" }}>
+                {user.name.charAt(0)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-semibold leading-tight" style={{ color: "#ffffff" }}>{user.name}</p>
+                <p className="text-[11px] truncate" style={{ color: "var(--sidebar-muted)" }}>{user.role}</p>
               </div>
               <button
                 onClick={logout}
-                className="rounded-md border border-white/20 px-2.5 py-1.5 text-xs font-black hover:bg-white/10"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-white/10"
+                style={{ color: "var(--sidebar-muted)" }}
+                title="Sign out"
               >
-                Exit
+                <LogOut size={14} />
               </button>
             </div>
           </div>
         </aside>
 
-        {/* Main content */}
+        {/* ── Main ── */}
         <div className="min-w-0 flex flex-col">
+
           {/* Header */}
-          <header className="sticky top-0 z-10 border-b border-[#d7dfce] bg-white">
-            <div className="flex items-center gap-4 px-5 py-4 lg:px-7">
-              {/* Mobile menu button */}
+          <header className="sticky top-0 z-10" style={{ background: "rgba(255,255,255,0.92)", backdropFilter: "blur(12px)", borderBottom: "1px solid var(--border)", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+            <div className="flex items-center gap-3 px-5 py-3 lg:px-6">
+
+              {/* Mobile hamburger */}
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="rounded-md border border-[#d7dfce] p-2 text-sm xl:hidden"
+                className="flex h-8 w-8 items-center justify-center rounded-lg xl:hidden transition-colors"
+                style={{ border: "1px solid var(--border)", color: "var(--ink-3)" }}
                 aria-label="Open menu"
               >
-                ☰
+                <Menu size={16} />
               </button>
 
+              {/* Page title */}
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-bold text-[#63745f]">{today} · {user.role} workspace</p>
-                <h2 className="text-2xl font-black leading-tight">{activeNav.label}</h2>
+                <p className="text-[11px] font-medium" style={{ color: "var(--ink-4)" }}>{today} · {user.role}</p>
+                <h2 className="text-lg font-bold leading-tight" style={{ color: "var(--ink)" }}>{activeNav.label}</h2>
               </div>
 
-              <div className="flex items-center gap-2.5 flex-wrap justify-end">
-                <input
-                  className="hidden w-64 rounded-md border border-[#c8d2bf] bg-[#fbfcf8] px-3.5 py-2.5 text-sm outline-none focus:border-[#172018] lg:block"
-                  placeholder="Search invoice, vehicle, farmer…"
-                />
+              {/* Right controls */}
+              <div className="flex items-center gap-2">
+                {/* Search */}
+                <div className="relative hidden lg:block">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "var(--ink-4)" }} />
+                  <input
+                    className="w-56 rounded-lg pl-8 pr-3 py-2 text-sm outline-none transition-all"
+                    style={{
+                      border: "1.5px solid var(--border)",
+                      background: "var(--bg)",
+                      color: "var(--ink)",
+                      fontSize: "0.8125rem",
+                    }}
+                    placeholder="Search invoice, vehicle…"
+                    onFocus={(e) => { e.target.style.borderColor = "#22c55e"; e.target.style.boxShadow = "0 0 0 3px rgba(34,197,94,0.12)"; }}
+                    onBlur={(e) => { e.target.style.borderColor = "var(--border)"; e.target.style.boxShadow = "none"; }}
+                  />
+                </div>
+
                 {/* Market ticker */}
                 <button
                   onClick={refreshMarket}
                   disabled={market.loading}
-                  className="hidden rounded-md border border-[#d7dfce] bg-[#f6faef] px-3.5 py-2 text-left sm:block"
+                  className="hidden sm:flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors"
+                  style={{ border: "1.5px solid var(--border)", background: "var(--card)" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "var(--muted)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "var(--card)")}
                 >
-                  <p className="text-xs font-black text-[#172018]">
-                    Corn {inrFmt.format(market.inrPerTon)}/MT
-                  </p>
-                  <p className="mt-0.5 text-[10px] text-[#60735d]">
-                    {market.loading ? "Refreshing…" : `${(market.cornCents / 100).toFixed(2)} USD/bu · ${market.source}`}
-                  </p>
+                  <div>
+                    <p className="text-xs font-semibold leading-tight" style={{ color: "var(--ink)" }}>
+                      Corn {inrFmt.format(market.inrPerTon)}/MT
+                    </p>
+                    <p className="text-[10px] leading-tight" style={{ color: "var(--ink-3)" }}>
+                      {market.loading
+                        ? "Refreshing…"
+                        : `$${(market.cornCents / 100).toFixed(2)}/bu · ${market.source}`}
+                    </p>
+                  </div>
+                  <RefreshCw size={12} className={market.loading ? "animate-spin" : ""} style={{ color: "var(--ink-4)" }} />
                 </button>
+
+                {/* CTA */}
                 <Link
                   href="/erp/procurement"
-                  className="rounded-md bg-[#172018] px-4 py-2.5 text-sm font-black text-white hover:bg-[#2a3b29]"
+                  className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold text-white transition-all"
+                  style={{ background: "var(--brand)", boxShadow: "0 1px 3px rgba(22,163,74,0.30)" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "#15803d")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "var(--brand)")}
                 >
-                  + New Entry
+                  <span className="text-base leading-none">+</span>
+                  <span>New Entry</span>
                 </Link>
               </div>
             </div>
           </header>
 
-          {/* Page content */}
-          <main className="flex-1 px-5 py-6 lg:px-7">
+          {/* Content */}
+          <main className="flex-1 px-5 py-6 lg:px-6 animate-fade-in">
             {children}
           </main>
         </div>

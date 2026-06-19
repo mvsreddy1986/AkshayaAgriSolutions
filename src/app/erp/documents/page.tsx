@@ -1,10 +1,21 @@
-"use client";
+﻿"use client";
 
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "../../../lib/supabase/client";
+import {
+  Upload, Link2, FileCode2, Archive,
+  RefreshCw, Download, Eye,
+} from "lucide-react";
 
 const TABS = ["Import Data", "Matching", "Templates", "Archive"] as const;
 type Tab = (typeof TABS)[number];
+
+const DOCS_TAB_ICONS = {
+  "Import Data": Upload,
+  "Matching": Link2,
+  "Templates": FileCode2,
+  "Archive": Archive,
+} as const;
 
 type ImportType = "parties" | "materials" | "inward_lots" | "invoices";
 type UploadState = "idle" | "uploading" | "done" | "error";
@@ -68,7 +79,7 @@ function StatusBadge({ status }: { status: string }) {
     Approved: "bg-[#f0fdf4] text-[#15803d]",
   };
   return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${map[status] ?? "bg-gray-100 text-gray-700"}`}>
+    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${map[status] ?? "bg-gray-100 text-gray-700"}`}>
       {status}
     </span>
   );
@@ -130,26 +141,26 @@ function ImportCard({ panel }: { panel: ImportPanel }) {
   return (
     <div className="rounded-xl border border-[#d8decf] bg-white p-6">
       <div className="mb-3 flex items-center gap-2">
-        <span className={`rounded-md px-2.5 py-1 text-xs font-black ${badgeColors[panel.badge]}`}>{panel.badge}</span>
+        <span className={`rounded-md px-2.5 py-1 text-xs font-semibold ${badgeColors[panel.badge]}`}>{panel.badge}</span>
       </div>
-      <h3 className="text-lg font-black leading-snug">{panel.title}</h3>
+      <h3 className="text-lg font-semibold leading-snug">{panel.title}</h3>
       <p className="mt-2 text-sm leading-6 text-[#60735d]">{panel.desc}</p>
 
       <div className="mt-3 rounded-lg bg-[#f3f6ef] p-3">
-        <p className="text-xs font-black text-[#405b3d]">Expected columns</p>
+        <p className="text-xs font-semibold text-[#405b3d]">Expected columns</p>
         <p className="mt-1 text-xs text-[#60735d]">{panel.columns}</p>
       </div>
 
       {preview && (
         <div className="mt-4 overflow-x-auto rounded-lg border border-[#d8decf]">
-          <p className="border-b border-[#edf0e8] px-3 py-2 text-xs font-black text-[#60735d]">
+          <p className="border-b border-[#edf0e8] px-3 py-2 text-xs font-semibold text-[#60735d]">
             Preview — first {preview.length} rows
           </p>
           <table className="w-full text-left text-xs">
             <thead className="bg-[#f3f6ef]">
               <tr>
                 {Object.keys(preview[0]).slice(0, 6).map((h) => (
-                  <th key={h} className="px-3 py-2 font-black text-[#405b3d] whitespace-nowrap">{h}</th>
+                  <th key={h} className="px-3 py-2 font-semibold text-[#405b3d] whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -177,7 +188,7 @@ function ImportCard({ panel }: { panel: ImportPanel }) {
         />
         <label
           htmlFor={`file-${panel.type}`}
-          className="cursor-pointer rounded-md border border-[#c8d4c0] bg-[#f6faef] px-4 py-2.5 text-center text-sm font-black hover:bg-[#eef3e8]"
+          className="cursor-pointer rounded-md border border-[#c8d4c0] bg-[#f6faef] px-4 py-2.5 text-center text-sm font-semibold hover:bg-[#eef3e8]"
         >
           {file ? `📄 ${file.name}` : "Choose Excel / CSV file"}
         </label>
@@ -186,29 +197,29 @@ function ImportCard({ panel }: { panel: ImportPanel }) {
           <button
             onClick={handleUpload}
             disabled={state === "uploading"}
-            className="rounded-md bg-[#172018] px-4 py-2.5 text-sm font-black text-white hover:bg-[#2a3b29] disabled:opacity-50"
+            className="btn btn-primary flex items-center gap-1.5"
           >
-            {state === "uploading" ? "Importing to Supabase…" : `Import ${panel.title.split(" ")[0]}`}
+            <Upload size={14} />{state === "uploading" ? "Importing to Supabase…" : `Import ${panel.title.split(" ")[0]}`}
           </button>
         )}
       </div>
 
       {state === "done" && result && (
         <div className="mt-3 rounded-lg bg-[#f0fdf4] p-4">
-          <p className="text-sm font-black text-[#15803d]">
+          <p className="text-sm font-semibold text-[#15803d]">
             ✓ {result.count} records imported to Supabase
           </p>
-          <button onClick={reset} className="mt-2 text-xs font-black text-[#15803d] hover:underline">
-            Import another file
+          <button onClick={reset} className="mt-2 text-xs font-semibold text-[#15803d] hover:underline inline-flex items-center gap-1">
+            <RefreshCw size={12} />Import another file
           </button>
         </div>
       )}
 
       {state === "error" && (
         <div className="mt-3 rounded-lg bg-[#fef2f2] p-4">
-          <p className="text-sm font-black text-[#b91c1c]">Import failed</p>
+          <p className="text-sm font-semibold text-[#b91c1c]">Import failed</p>
           <p className="mt-1 text-xs text-[#b91c1c]">{error}</p>
-          <button onClick={reset} className="mt-2 text-xs font-black text-[#b91c1c] hover:underline">
+          <button onClick={reset} className="mt-2 text-xs font-semibold text-[#b91c1c] hover:underline">
             Try again
           </button>
         </div>
@@ -248,13 +259,13 @@ function MatchingTab() {
   return (
     <div className="grid gap-6">
       <div className="flex items-center justify-between">
-        <h3 className="text-xl font-black">Live Supabase record counts</h3>
+        <h3 className="text-xl font-semibold">Live Supabase record counts</h3>
         <button
           onClick={refresh}
           disabled={loading}
-          className="rounded-md bg-[#172018] px-4 py-2.5 text-sm font-black text-white hover:bg-[#2a3b29] disabled:opacity-50"
+          className="btn btn-primary flex items-center gap-1.5"
         >
-          {loading ? "Checking…" : "Refresh counts"}
+          <RefreshCw size={14} />{loading ? "Checking…" : "Refresh counts"}
         </button>
       </div>
 
@@ -268,7 +279,7 @@ function MatchingTab() {
           ].map(({ label, count, color }) => (
             <div key={label} className="rounded-xl border border-[#d8decf] bg-white p-5">
               <p className="text-sm text-[#60735d]">{label} in Supabase</p>
-              <p className={`mt-2 text-4xl font-black ${color}`}>{count}</p>
+              <p className={`mt-2 text-4xl font-semibold ${color}`}>{count}</p>
             </div>
           ))}
         </div>
@@ -293,7 +304,7 @@ type TemplateCard = {
   desc: string;
   columns: string;
   rows: string;
-  onDownload: () => void;
+  onDownload: () => Promise<void>;
 };
 
 function TemplatesTab() {
@@ -369,7 +380,7 @@ function TemplatesTab() {
         <div className="flex items-start gap-3 rounded-xl border border-[#fde68a] bg-[#fffbeb] p-5">
           <span className="mt-0.5 text-lg">🔒</span>
           <div>
-            <p className="font-black text-[#92400e]">Admin access required</p>
+            <p className="font-semibold text-[#92400e]">Admin access required</p>
             <p className="mt-1 text-sm text-[#92400e]">
               Template downloads are restricted to Admin login. Log out and sign in as{" "}
               <strong>admin@akshayaagri.in</strong> to download.
@@ -393,32 +404,32 @@ function TemplatesTab() {
         {TEMPLATES.map((t) => (
           <div key={t.name} className={`rounded-xl border bg-white p-6 transition ${isAdmin ? "border-[#d8decf]" : "border-[#e5e7eb] opacity-60"}`}>
             <div className="mb-3 flex items-center gap-2">
-              <span className={`rounded-md px-2.5 py-1 text-xs font-black ${t.badge === "Master" ? "bg-[#172018] text-white" : "bg-[#405b3d] text-white"}`}>
+              <span className={`rounded-md px-2.5 py-1 text-xs font-semibold ${t.badge === "Master" ? "bg-[#172018] text-white" : "bg-[#405b3d] text-white"}`}>
                 {t.badge}
               </span>
-              <span className="text-xs font-bold text-[#60735d]">Excel (.xlsx)</span>
+              <span className="text-xs font-medium text-[#60735d]">Excel (.xlsx)</span>
             </div>
-            <h3 className="text-lg font-black">{t.name} template</h3>
+            <h3 className="text-lg font-semibold">{t.name} template</h3>
             <p className="mt-2 text-sm leading-6 text-[#60735d]">{t.desc}</p>
 
             <div className="mt-4 grid gap-2 rounded-lg bg-[#f3f6ef] p-3 text-xs">
               <div>
-                <span className="font-black text-[#405b3d]">Columns: </span>
+                <span className="font-semibold text-[#405b3d]">Columns: </span>
                 <span className="text-[#60735d]">{t.columns}</span>
               </div>
               <div>
-                <span className="font-black text-[#405b3d]">Sample data: </span>
+                <span className="font-semibold text-[#405b3d]">Sample data: </span>
                 <span className="text-[#60735d]">{t.rows}</span>
               </div>
             </div>
 
             <div className="mt-4 flex gap-2">
               <button
-                onClick={() => isAdmin && handleDownload(t.name, t.onDownload as () => void)}
+                onClick={() => isAdmin && handleDownload(t.name, t.onDownload)}
                 disabled={!isAdmin || downloading === t.name}
-                className="rounded-md bg-[#172018] px-4 py-2.5 text-sm font-black text-white hover:bg-[#2a3b29] disabled:cursor-not-allowed disabled:opacity-40"
+                className="btn btn-primary flex items-center gap-1.5"
               >
-                {downloading === t.name ? "Preparing…" : "Download template"}
+                <Download size={14} />{downloading === t.name ? "Preparing…" : "Download template"}
               </button>
             </div>
           </div>
@@ -428,13 +439,13 @@ function TemplatesTab() {
       {/* Usage guide */}
       {isAdmin && (
         <div className="rounded-xl border border-[#d8decf] bg-white p-6">
-          <h3 className="font-black">How to use these templates</h3>
+          <h3 className="font-semibold">How to use these templates</h3>
           <ol className="mt-4 grid gap-3 text-sm text-[#536251]">
-            <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#172018] text-xs font-black text-white">1</span>Download the template for the data you want to import.</li>
-            <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#172018] text-xs font-black text-white">2</span>Row 1 is the header (do not change). Row 2 explains each column. Delete Row 2 before importing.</li>
-            <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#172018] text-xs font-black text-white">3</span>Replace or add rows with your real business data. Keep column order exactly as is.</li>
-            <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#172018] text-xs font-black text-white">4</span>Go to the <strong>Import Data</strong> tab, choose the matching import type, upload your file, and click Import.</li>
-            <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#172018] text-xs font-black text-white">5</span>Check the <strong>Matching</strong> tab to confirm record counts in Supabase.</li>
+            <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#172018] text-xs font-semibold text-white">1</span>Download the template for the data you want to import.</li>
+            <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#172018] text-xs font-semibold text-white">2</span>Row 1 is the header (do not change). Row 2 explains each column. Delete Row 2 before importing.</li>
+            <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#172018] text-xs font-semibold text-white">3</span>Replace or add rows with your real business data. Keep column order exactly as is.</li>
+            <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#172018] text-xs font-semibold text-white">4</span>Go to the <strong>Import Data</strong> tab, choose the matching import type, upload your file, and click Import.</li>
+            <li className="flex gap-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#172018] text-xs font-semibold text-white">5</span>Check the <strong>Matching</strong> tab to confirm record counts in Supabase.</li>
           </ol>
         </div>
       )}
@@ -454,13 +465,13 @@ function ArchiveTab() {
   return (
     <div className="grid gap-5">
       <div className="flex items-center justify-between">
-        <h3 className="text-xl font-black">Audit document archive</h3>
-        <input type="text" placeholder="Search documents…" className="w-56 rounded-md border border-[#c8d4c0] px-3.5 py-2 text-sm outline-none focus:border-[#172018]" />
+        <h3 className="text-xl font-semibold">Audit document archive</h3>
+        <input type="text" placeholder="Search documents…" className="w-56 rounded-md border border-[#c8d4c0] px-3.5 py-2 text-sm outline-none focus:border-[#16a34a]" />
       </div>
       <div className="overflow-hidden rounded-xl border border-[#d8decf] bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-[#f3f6ef] text-xs font-black uppercase tracking-widest text-[#60735d]">
+            <thead className="bg-[#f3f6ef] text-xs font-semibold uppercase tracking-widest text-[#60735d]">
               <tr>
                 {["Document name", "Type", "Linked party", "Date", "Reference", "Status", "Action"].map((h) => (
                   <th key={h} className="px-5 py-3.5">{h}</th>
@@ -470,14 +481,14 @@ function ArchiveTab() {
             <tbody>
               {archive.map((doc) => (
                 <tr key={doc.name} className="border-t border-[#edf0e8] hover:bg-[#fafcf8]">
-                  <td className="px-5 py-3.5 font-black max-w-55 truncate">{doc.name}</td>
+                  <td className="px-5 py-3.5 font-semibold max-w-55 truncate">{doc.name}</td>
                   <td className="px-5 py-3.5 text-[#536251]">{doc.type}</td>
                   <td className="px-5 py-3.5 font-bold">{doc.party}</td>
                   <td className="px-5 py-3.5 text-[#536251] whitespace-nowrap">{doc.date}</td>
                   <td className="px-5 py-3.5 font-mono text-xs text-[#1d4ed8]">{doc.ref}</td>
                   <td className="px-5 py-3.5"><StatusBadge status={doc.status} /></td>
                   <td className="px-5 py-3.5">
-                    <button className="text-xs font-black text-[#172018] hover:underline">View</button>
+                    <button className="text-xs font-semibold text-[#172018] hover:underline inline-flex items-center gap-1"><Eye size={12} />View</button>
                   </td>
                 </tr>
               ))}
@@ -494,15 +505,14 @@ export default function DocumentsPage() {
   return (
     <div className="grid gap-5">
       <div className="flex gap-2 overflow-x-auto">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`shrink-0 rounded-md px-4 py-2 text-sm font-black transition ${tab === t ? "bg-[#172018] text-white" : "border border-[#d7dfce] bg-white text-[#40513d] hover:bg-[#f3f6ef]"}`}
-          >
-            {t}
-          </button>
-        ))}
+        {TABS.map((t) => {
+          const TabIcon = DOCS_TAB_ICONS[t];
+          return (
+            <button key={t} onClick={() => setTab(t)} className={`shrink-0 rounded-lg px-4 py-1.5 text-sm font-semibold transition-all flex items-center gap-1.5 ${tab === t ? "bg-[var(--ink)] text-white shadow-sm" : "border border-[var(--border)] bg-[var(--card)] text-[var(--ink-2)] hover:bg-[var(--muted)]"}`}>
+              <TabIcon size={14} />{t}
+            </button>
+          );
+        })}
       </div>
       {tab === "Import Data" && <ImportTab />}
       {tab === "Matching" && <MatchingTab />}

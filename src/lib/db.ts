@@ -21,6 +21,7 @@ function matFromDb(r: Record<string, unknown>): Material {
     id: str(r.id), name: str(r.name), hsn: str(r.hsn),
     uom: str(r.uom) as Material["uom"],
     gstRate: num(r.gst_rate),
+    cessRate: num(r.cess_rate ?? 1),
     category: str(r.category) as Material["category"],
     defaultGrossSaleRate: num(r.default_gross_sale_rate),
     pricingModel: (str(r.pricing_model) || "deduction") as Material["pricingModel"],
@@ -29,13 +30,14 @@ function matFromDb(r: Record<string, unknown>): Material {
   };
 }
 
-function matToDb(m: Partial<Material>): Record<string, unknown> {
+export function matToDb(m: Partial<Material>): Record<string, unknown> {
   const o: Record<string, unknown> = {};
   if (m.id !== undefined) o.id = m.id;
   if (m.name !== undefined) o.name = m.name;
   if (m.hsn !== undefined) o.hsn = m.hsn;
   if (m.uom !== undefined) o.uom = m.uom;
   if (m.gstRate !== undefined) o.gst_rate = m.gstRate;
+  if (m.cessRate !== undefined) o.cess_rate = m.cessRate;
   if (m.category !== undefined) o.category = m.category;
   if (m.defaultGrossSaleRate !== undefined) o.default_gross_sale_rate = m.defaultGrossSaleRate;
   if (m.pricingModel !== undefined) o.pricing_model = m.pricingModel;
@@ -58,9 +60,23 @@ export async function createMaterial(m: Omit<Material, "id">): Promise<Material>
 }
 
 export async function updateMaterial(id: string, m: Partial<Material>): Promise<Material> {
-  const { data, error } = await supabase.from("materials").update(matToDb(m)).eq("id", id).select().single();
-  if (error) throw error;
+  const updates = matToDb(m);
+  const { data, error } = await supabase.from("materials").update(updates).eq("id", id).select().single();
+  if (error) {
+    if (error.message.includes("cess_rate")) {
+      delete updates.cess_rate;
+      const { data: d2, error: e2 } = await supabase.from("materials").update(updates).eq("id", id).select().single();
+      if (e2) throw e2;
+      return matFromDb(d2 as Record<string, unknown>);
+    }
+    throw error;
+  }
   return matFromDb(data as Record<string, unknown>);
+}
+
+export async function deleteMaterial(id: string): Promise<void> {
+  const { error } = await supabase.from("materials").delete().eq("id", id);
+  if (error) throw error;
 }
 
 // ─── PARTIES ─────────────────────────────────────────────────────────────────
@@ -81,7 +97,7 @@ function partyFromDb(r: Record<string, unknown>): Party {
   };
 }
 
-function partyToDb(p: Partial<Party>): Record<string, unknown> {
+export function partyToDb(p: Partial<Party>): Record<string, unknown> {
   const o: Record<string, unknown> = {};
   if (p.id !== undefined) o.id = p.id;
   if (p.name !== undefined) o.name = p.name;
@@ -123,6 +139,11 @@ export async function updateParty(id: string, p: Partial<Party>): Promise<Party>
   return partyFromDb(data as Record<string, unknown>);
 }
 
+export async function deleteParty(id: string): Promise<void> {
+  const { error } = await supabase.from("parties").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // ─── QUALITY RULES ───────────────────────────────────────────────────────────
 
 function qrFromDb(r: Record<string, unknown>): QualityRule {
@@ -137,7 +158,7 @@ function qrFromDb(r: Record<string, unknown>): QualityRule {
   };
 }
 
-function qrToDb(q: Partial<QualityRule>): Record<string, unknown> {
+export function qrToDb(q: Partial<QualityRule>): Record<string, unknown> {
   const o: Record<string, unknown> = {};
   if (q.id !== undefined) o.id = q.id;
   if (q.materialId !== undefined) o.material_id = q.materialId;
@@ -172,6 +193,11 @@ export async function updateQualityRule(id: string, q: Partial<QualityRule>): Pr
   return qrFromDb(data as Record<string, unknown>);
 }
 
+export async function deleteQualityRule(id: string): Promise<void> {
+  const { error } = await supabase.from("quality_rules").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // ─── RATE MASTERS ────────────────────────────────────────────────────────────
 
 function rateFromDb(r: Record<string, unknown>): RateMaster {
@@ -184,7 +210,7 @@ function rateFromDb(r: Record<string, unknown>): RateMaster {
   };
 }
 
-function rateToDb(r: Partial<RateMaster>): Record<string, unknown> {
+export function rateToDb(r: Partial<RateMaster>): Record<string, unknown> {
   const o: Record<string, unknown> = {};
   if (r.id !== undefined) o.id = r.id;
   if (r.materialId !== undefined) o.material_id = r.materialId;
@@ -217,6 +243,11 @@ export async function updateRate(id: string, r: Partial<RateMaster>): Promise<Ra
   return rateFromDb(data as Record<string, unknown>);
 }
 
+export async function deleteRate(id: string): Promise<void> {
+  const { error } = await supabase.from("rate_masters").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // ─── INWARD LOTS ─────────────────────────────────────────────────────────────
 
 function lotFromDb(r: Record<string, unknown>): InwardLot {
@@ -241,10 +272,13 @@ function lotFromDb(r: Record<string, unknown>): InwardLot {
     invoiceId: nullable(r.invoice_id, str),
     status: str(r.status) as InwardLot["status"],
     overrideReason: nullable(r.override_reason, str),
+    akshayaMarginPerMT: num(r.akshaya_margin_per_mt ?? 50),
+    holdPenalty: num(r.hold_penalty ?? 0),
+    holdPenaltyNote: nullable(r.hold_penalty_note, str),
   };
 }
 
-function lotToDb(l: Partial<InwardLot>): Record<string, unknown> {
+export function lotToDb(l: Partial<InwardLot>): Record<string, unknown> {
   const o: Record<string, unknown> = {};
   if (l.id !== undefined) o.id = l.id;
   if (l.documentRef !== undefined) o.document_ref = l.documentRef;
@@ -274,6 +308,9 @@ function lotToDb(l: Partial<InwardLot>): Record<string, unknown> {
   if (l.invoiceId !== undefined) o.invoice_id = l.invoiceId ?? null;
   if (l.status !== undefined) o.status = l.status;
   if (l.overrideReason !== undefined) o.override_reason = l.overrideReason ?? null;
+  if (l.akshayaMarginPerMT !== undefined) o.akshaya_margin_per_mt = l.akshayaMarginPerMT;
+  if (l.holdPenalty !== undefined) o.hold_penalty = l.holdPenalty;
+  if (l.holdPenaltyNote !== undefined) o.hold_penalty_note = l.holdPenaltyNote ?? null;
   return o;
 }
 
@@ -285,16 +322,55 @@ export async function listLots(model?: string): Promise<InwardLot[]> {
   return (data ?? []).map(lotFromDb);
 }
 
+const OPTIONAL_LOT_COLS = ["akshaya_margin_per_mt", "hold_penalty", "hold_penalty_note"];
+
 export async function createLot(l: Omit<InwardLot, "id">): Promise<InwardLot> {
   const row = lotToDb({ ...l, id: `lot-${Date.now()}` });
   const { data, error } = await supabase.from("inward_lots").insert(row).select().single();
+  if (error) {
+    const missing = OPTIONAL_LOT_COLS.find(c => error.message.includes(c));
+    if (missing) {
+      OPTIONAL_LOT_COLS.forEach(c => delete row[c]);
+      const { data: d2, error: e2 } = await supabase.from("inward_lots").insert(row).select().single();
+      if (e2) throw e2;
+      return lotFromDb(d2 as Record<string, unknown>);
+    }
+    throw error;
+  }
+  return lotFromDb(data as Record<string, unknown>);
+}
+
+export async function getLot(id: string): Promise<InwardLot> {
+  const { data, error } = await supabase.from("inward_lots").select("*").eq("id", id).single();
   if (error) throw error;
   return lotFromDb(data as Record<string, unknown>);
 }
 
-export async function updateLot(id: string, l: Partial<InwardLot>): Promise<InwardLot> {
-  const { data, error } = await supabase.from("inward_lots").update(lotToDb(l)).eq("id", id).select().single();
+export async function deleteLot(id: string): Promise<void> {
+  // Remove settlement ledger entries for this lot before deleting the lot itself.
+  // source_id is plain TEXT (no FK), so we clean up manually.
+  const { error: leErr } = await supabase
+    .from("ledger_entries")
+    .delete()
+    .eq("source_id", id);
+  if (leErr) throw leErr;
+  const { error } = await supabase.from("inward_lots").delete().eq("id", id);
   if (error) throw error;
+}
+
+export async function updateLot(id: string, l: Partial<InwardLot>): Promise<InwardLot> {
+  const updates = lotToDb(l);
+  const { data, error } = await supabase.from("inward_lots").update(updates).eq("id", id).select().single();
+  if (error) {
+    const missing = OPTIONAL_LOT_COLS.find(c => error.message.includes(c));
+    if (missing) {
+      OPTIONAL_LOT_COLS.forEach(c => delete updates[c]);
+      const { data: d2, error: e2 } = await supabase.from("inward_lots").update(updates).eq("id", id).select().single();
+      if (e2) throw e2;
+      return lotFromDb(d2 as Record<string, unknown>);
+    }
+    throw error;
+  }
   return lotFromDb(data as Record<string, unknown>);
 }
 
@@ -314,7 +390,7 @@ function payoutFromDb(r: Record<string, unknown>): FarmerPayout {
   };
 }
 
-function payoutToDb(p: Partial<FarmerPayout>): Record<string, unknown> {
+export function payoutToDb(p: Partial<FarmerPayout>): Record<string, unknown> {
   const o: Record<string, unknown> = {};
   if (p.id !== undefined) o.id = p.id;
   if (p.batchRef !== undefined) o.batch_ref = p.batchRef;
@@ -377,7 +453,7 @@ function invFromDb(r: Record<string, unknown>): Invoice {
   };
 }
 
-function invToDb(inv: Partial<Invoice>): Record<string, unknown> {
+export function invToDb(inv: Partial<Invoice>): Record<string, unknown> {
   const o: Record<string, unknown> = {};
   if (inv.id !== undefined) o.id = inv.id;
   if (inv.invoiceNo !== undefined) o.invoice_no = inv.invoiceNo;
@@ -444,7 +520,7 @@ function voucherFromDb(r: Record<string, unknown>): Voucher {
   };
 }
 
-function voucherToDb(v: Partial<Voucher>): Record<string, unknown> {
+export function voucherToDb(v: Partial<Voucher>): Record<string, unknown> {
   const o: Record<string, unknown> = {};
   if (v.id !== undefined) o.id = v.id;
   if (v.voucherNo !== undefined) o.voucher_no = v.voucherNo;
@@ -532,7 +608,7 @@ function stockFromDb(r: Record<string, unknown>): StockBatch {
   };
 }
 
-function stockToDb(s: Partial<StockBatch>): Record<string, unknown> {
+export function stockToDb(s: Partial<StockBatch>): Record<string, unknown> {
   const o: Record<string, unknown> = {};
   if (s.id !== undefined) o.id = s.id;
   if (s.batchRef !== undefined) o.batch_ref = s.batchRef;

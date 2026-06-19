@@ -32,7 +32,7 @@ export type ParamType = "quantitative" | "qualitative";
 export type SettlementRole = "deduction" | "rate-slab" | "reject-trigger" | "info-only";
 
 /** How the deduction value / weight is calculated. */
-export type DeductionMethod = "linear" | "slab" | "actual-weight" | "none";
+export type DeductionMethod = "linear" | "slab" | "actual-weight" | "value-pct" | "none";
 
 /**
  * How a material's price is determined:
@@ -91,6 +91,7 @@ export interface Material {
   hsn: string;
   uom: UOM;
   gstRate: number;
+  cessRate: number;            // % cess levied at mandi on every transaction (e.g. 1 = 1%)
   category: MaterialCategory;
   defaultGrossSaleRate: number;
   pricingModel: PricingModel;
@@ -176,6 +177,9 @@ export interface InwardLot {
   invoiceId: string | null;
   status: LotStatus;
   overrideReason: string | null;
+  akshayaMarginPerMT: number;  // ₹/MT Akshaya earns as service margin (default 50 = ₹5/qtl)
+  holdPenalty: number;          // ₹ additional deduction agreed when accepting a held lot (0 = none)
+  holdPenaltyNote: string | null; // audit note explaining why the penalty was applied
 }
 
 export interface FarmerPayout {

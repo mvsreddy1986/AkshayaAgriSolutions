@@ -28,20 +28,20 @@ const GCV_RATESLAB_PARAM: MaterialParam = {
 
 export const MATERIALS: Material[] = [
   {
-    id: "mat-001", name: "Maize", hsn: "1005", uom: "MT", gstRate: 0,
+    id: "mat-001", name: "Maize", hsn: "1005", uom: "MT", gstRate: 0, cessRate: 1,
     category: "Grain", defaultGrossSaleRate: 22500,
     pricingModel: "deduction",
     params: [
       MOISTURE_DEDUCTION_PARAM,
       FM_DEDUCTION_PARAM,
-      { paramKey: "broken_grain_pct", label: "Broken Grain %", type: "quantitative", uom: "%", settlementRole: "reject-trigger", required: false, sortOrder: 3 },
+      { paramKey: "broken_grain_pct", label: "Broken Grain %", type: "quantitative", uom: "%", settlementRole: "deduction", required: false, sortOrder: 3 },
       { paramKey: "aflatoxin_ppb", label: "Aflatoxin (ppb)", type: "quantitative", uom: "ppb", settlementRole: "reject-trigger", required: false, sortOrder: 4 },
       { paramKey: "test_weight_gl", label: "Test Weight (g/L)", type: "quantitative", uom: "g/L", settlementRole: "info-only", required: false, sortOrder: 5 },
     ],
     status: "Active",
   },
   {
-    id: "mat-002", name: "Paddy Husk", hsn: "1213", uom: "MT", gstRate: 0,
+    id: "mat-002", name: "Paddy Husk", hsn: "1213", uom: "MT", gstRate: 0, cessRate: 1,
     category: "Biomass", defaultGrossSaleRate: 2800,
     pricingModel: "rate-slab",
     params: [
@@ -52,7 +52,7 @@ export const MATERIALS: Material[] = [
     status: "Active",
   },
   {
-    id: "mat-003", name: "Coal", hsn: "2701", uom: "MT", gstRate: 5,
+    id: "mat-003", name: "Coal", hsn: "2701", uom: "MT", gstRate: 5, cessRate: 0,
     category: "Fuel", defaultGrossSaleRate: 12000,
     pricingModel: "rate-slab",
     params: [
@@ -64,7 +64,7 @@ export const MATERIALS: Material[] = [
     status: "Active",
   },
   {
-    id: "mat-004", name: "Biomass", hsn: "4401", uom: "MT", gstRate: 5,
+    id: "mat-004", name: "Biomass", hsn: "4401", uom: "MT", gstRate: 5, cessRate: 0,
     category: "Biomass", defaultGrossSaleRate: 3500,
     pricingModel: "deduction",
     params: [
@@ -75,7 +75,7 @@ export const MATERIALS: Material[] = [
     status: "Active",
   },
   {
-    id: "mat-005", name: "DDGS", hsn: "2303", uom: "MT", gstRate: 0,
+    id: "mat-005", name: "DDGS", hsn: "2303", uom: "MT", gstRate: 0, cessRate: 1,
     category: "Byproduct", defaultGrossSaleRate: 18000,
     pricingModel: "deduction",
     params: [
@@ -87,7 +87,7 @@ export const MATERIALS: Material[] = [
     status: "Active",
   },
   {
-    id: "mat-006", name: "WDG", hsn: "2309", uom: "MT", gstRate: 0,
+    id: "mat-006", name: "WDG", hsn: "2309", uom: "MT", gstRate: 0, cessRate: 1,
     category: "Byproduct", defaultGrossSaleRate: 9500,
     pricingModel: "deduction",
     params: [
@@ -97,7 +97,7 @@ export const MATERIALS: Material[] = [
     status: "Draft",
   },
   {
-    id: "mat-007", name: "CO2", hsn: "2811", uom: "KG", gstRate: 18,
+    id: "mat-007", name: "CO2", hsn: "2811", uom: "KG", gstRate: 18, cessRate: 0,
     category: "Chemical", defaultGrossSaleRate: 28,
     pricingModel: "rate-slab",
     params: [
@@ -107,7 +107,7 @@ export const MATERIALS: Material[] = [
     status: "Active",
   },
   {
-    id: "mat-008", name: "Corn Oil", hsn: "1515", uom: "L", gstRate: 12,
+    id: "mat-008", name: "Corn Oil", hsn: "1515", uom: "L", gstRate: 12, cessRate: 0,
     category: "Byproduct", defaultGrossSaleRate: 85,
     pricingModel: "rate-slab",
     params: [
@@ -219,6 +219,7 @@ export const QUALITY_RULES: QualityRule[] = [
     paramRules: [
       { paramKey: "moisture_pct", label: "Moisture %", baseValue: 14, deductionMethod: "linear", linearRate: 0.71 },
       { paramKey: "fm_pct", label: "Foreign Matter %", baseValue: 0, deductionMethod: "actual-weight" },
+      { paramKey: "broken_grain_pct", label: "Broken Grain %", baseValue: 5, deductionMethod: "linear", linearRate: 0.50 },
       { paramKey: "aflatoxin_ppb", label: "Aflatoxin (ppb)", deductionMethod: "none", rejectThreshold: 20 },
     ],
   },
@@ -232,6 +233,7 @@ export const QUALITY_RULES: QualityRule[] = [
     paramRules: [
       { paramKey: "moisture_pct", label: "Moisture %", baseValue: 14.5, deductionMethod: "linear", linearRate: 0.68 },
       { paramKey: "fm_pct", label: "Foreign Matter %", baseValue: 0, deductionMethod: "actual-weight" },
+      { paramKey: "broken_grain_pct", label: "Broken Grain %", baseValue: 5, deductionMethod: "linear", linearRate: 0.50 },
     ],
   },
   {
@@ -305,7 +307,7 @@ export const INWARD_LOTS: InwardLot[] = [
     paramDeductions: { moisture_pct: 10.87, fm_pct: 3158.1 },
     cessAmount: 1435.5, netPayableWeight: 12.619,
     grossSaleRate: 22500, grossSaleValue: 283927.5,
-    importBatchId: "imp-001", invoiceId: null, status: "Mapped", overrideReason: null,
+    importBatchId: "imp-001", invoiceId: null, status: "Mapped", overrideReason: null, akshayaMarginPerMT: 50, holdPenalty: 0, holdPenaltyNote: null,
   },
   {
     id: "lot-002", documentRef: "DR-12MAY-002", businessModel: "A", lotDate: "2026-05-12",
@@ -317,7 +319,7 @@ export const INWARD_LOTS: InwardLot[] = [
     paramDeductions: { moisture_pct: 6.53, fm_pct: 2328.75 },
     cessAmount: 1293.75, netPayableWeight: 11.396,
     grossSaleRate: 22500, grossSaleValue: 256410,
-    importBatchId: "imp-001", invoiceId: null, status: "Mapped", overrideReason: null,
+    importBatchId: "imp-001", invoiceId: null, status: "Mapped", overrideReason: null, akshayaMarginPerMT: 50, holdPenalty: 0, holdPenaltyNote: null,
   },
   {
     id: "lot-003", documentRef: "DR-12MAY-003", businessModel: "A", lotDate: "2026-05-12",
@@ -329,7 +331,7 @@ export const INWARD_LOTS: InwardLot[] = [
     paramDeductions: {},
     cessAmount: 0, netPayableWeight: 0,
     grossSaleRate: 22500, grossSaleValue: 0,
-    importBatchId: "imp-001", invoiceId: null, status: "QualityHold", overrideReason: null,
+    importBatchId: "imp-001", invoiceId: null, status: "QualityHold", overrideReason: null, akshayaMarginPerMT: 50, holdPenalty: 0, holdPenaltyNote: null,
   },
   {
     id: "lot-004", documentRef: "DR-12MAY-004", businessModel: "A", lotDate: "2026-05-12",
@@ -341,7 +343,7 @@ export const INWARD_LOTS: InwardLot[] = [
     paramDeductions: {},
     cessAmount: 0, netPayableWeight: 6.72,
     grossSaleRate: 3500, grossSaleValue: 23520,
-    importBatchId: "imp-001", invoiceId: null, status: "Approved", overrideReason: null,
+    importBatchId: "imp-001", invoiceId: null, status: "Approved", overrideReason: null, akshayaMarginPerMT: 50, holdPenalty: 0, holdPenaltyNote: null,
   },
   {
     id: "lot-005", documentRef: "FF-12MAY-014", businessModel: "B", lotDate: "2026-05-12",
@@ -353,7 +355,7 @@ export const INWARD_LOTS: InwardLot[] = [
     paramDeductions: { moisture_pct: 1.42, fm_pct: 1575 },
     cessAmount: 1125, netPayableWeight: 9.930,
     grossSaleRate: 22500, grossSaleValue: 223425,
-    importBatchId: "imp-002", invoiceId: "inv-001", status: "Invoiced", overrideReason: null,
+    importBatchId: "imp-002", invoiceId: "inv-001", status: "Invoiced", overrideReason: null, akshayaMarginPerMT: 50, holdPenalty: 0, holdPenaltyNote: null,
   },
   {
     id: "lot-006", documentRef: "DR-11MAY-001", businessModel: "A", lotDate: "2026-05-11",
@@ -365,7 +367,7 @@ export const INWARD_LOTS: InwardLot[] = [
     paramDeductions: { moisture_pct: 4.47, fm_pct: 2268 },
     cessAmount: 1417.5, netPayableWeight: 12.499,
     grossSaleRate: 22500, grossSaleValue: 281227.5,
-    importBatchId: null, invoiceId: "inv-001", status: "Invoiced", overrideReason: null,
+    importBatchId: null, invoiceId: "inv-001", status: "Invoiced", overrideReason: null, akshayaMarginPerMT: 50, holdPenalty: 0, holdPenaltyNote: null,
   },
 ];
 

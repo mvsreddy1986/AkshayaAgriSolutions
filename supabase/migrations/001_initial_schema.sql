@@ -1,9 +1,6 @@
--- Akshaya Agri Solutions ERP — Current Schema
--- This file reflects the schema AFTER all migrations have been applied.
--- To apply to a new database, run: npm run db:migrate
--- (which executes supabase/migrations/ files in order)
+-- Migration 001: Initial schema
+-- All statements use IF NOT EXISTS / IF EXISTS so this is safe to re-run.
 
--- ─── MATERIALS ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS materials (
   id                      TEXT PRIMARY KEY,
   name                    TEXT NOT NULL,
@@ -12,15 +9,14 @@ CREATE TABLE IF NOT EXISTS materials (
   gst_rate                NUMERIC NOT NULL DEFAULT 0,
   category                TEXT NOT NULL DEFAULT 'Grain',
   default_gross_sale_rate NUMERIC NOT NULL DEFAULT 0,
-  pricing_model           TEXT NOT NULL DEFAULT 'deduction',
-  params                  JSONB NOT NULL DEFAULT '[]',
+  settlement_method       TEXT NOT NULL DEFAULT '',
+  quality_params          TEXT[] NOT NULL DEFAULT '{}',
   status                  TEXT NOT NULL DEFAULT 'Draft',
   created_at              TIMESTAMPTZ DEFAULT NOW(),
   updated_at              TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE materials DISABLE ROW LEVEL SECURITY;
 
--- ─── PARTIES ─────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS parties (
   id                   TEXT PRIMARY KEY,
   name                 TEXT NOT NULL,
@@ -45,25 +41,26 @@ CREATE TABLE IF NOT EXISTS parties (
 );
 ALTER TABLE parties DISABLE ROW LEVEL SECURITY;
 
--- ─── QUALITY RULES ───────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS quality_rules (
-  id                   TEXT PRIMARY KEY,
-  material_id          TEXT NOT NULL,
-  material_name        TEXT NOT NULL,
-  valid_from           DATE NOT NULL,
-  valid_to             DATE,
-  pricing_model        TEXT NOT NULL DEFAULT 'deduction',
-  global_cess_rate     NUMERIC NOT NULL DEFAULT 0,
-  param_rules          JSONB NOT NULL DEFAULT '[]',
-  allowed_variance_pct NUMERIC NOT NULL DEFAULT 2,
-  description          TEXT NOT NULL DEFAULT '',
-  status               TEXT NOT NULL DEFAULT 'Draft',
-  created_at           TIMESTAMPTZ DEFAULT NOW(),
-  updated_at           TIMESTAMPTZ DEFAULT NOW()
+  id                         TEXT PRIMARY KEY,
+  material_id                TEXT NOT NULL,
+  material_name              TEXT NOT NULL,
+  valid_from                 DATE NOT NULL,
+  valid_to                   DATE,
+  base_moisture              NUMERIC NOT NULL DEFAULT 14,
+  moisture_deduction_method  TEXT NOT NULL DEFAULT 'linear',
+  moisture_rate_per_pct      NUMERIC NOT NULL DEFAULT 0,
+  fm_deduction_method        TEXT NOT NULL DEFAULT 'actual',
+  fm_rate_per_pct            NUMERIC NOT NULL DEFAULT 1,
+  cess_rate                  NUMERIC NOT NULL DEFAULT 0,
+  allowed_variance_pct       NUMERIC NOT NULL DEFAULT 2,
+  description                TEXT NOT NULL DEFAULT '',
+  status                     TEXT NOT NULL DEFAULT 'Draft',
+  created_at                 TIMESTAMPTZ DEFAULT NOW(),
+  updated_at                 TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE quality_rules DISABLE ROW LEVEL SECURITY;
 
--- ─── RATE MASTERS ────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS rate_masters (
   id            TEXT PRIMARY KEY,
   material_id   TEXT NOT NULL,
@@ -79,7 +76,6 @@ CREATE TABLE IF NOT EXISTS rate_masters (
 );
 ALTER TABLE rate_masters DISABLE ROW LEVEL SECURITY;
 
--- ─── INWARD LOTS ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS inward_lots (
   id                 TEXT PRIMARY KEY,
   document_ref       TEXT NOT NULL DEFAULT '',
@@ -98,9 +94,11 @@ CREATE TABLE IF NOT EXISTS inward_lots (
   tare_weight        NUMERIC NOT NULL DEFAULT 0,
   net_weight         NUMERIC NOT NULL DEFAULT 0,
   accepted_weight    NUMERIC NOT NULL DEFAULT 0,
+  moisture_pct       NUMERIC NOT NULL DEFAULT 0,
+  fm_pct             NUMERIC NOT NULL DEFAULT 0,
   quality_rule_id    TEXT,
-  quality_readings   JSONB NOT NULL DEFAULT '{}',
-  param_deductions   JSONB NOT NULL DEFAULT '{}',
+  moisture_deduction NUMERIC NOT NULL DEFAULT 0,
+  fm_deduction       NUMERIC NOT NULL DEFAULT 0,
   cess_amount        NUMERIC NOT NULL DEFAULT 0,
   net_payable_weight NUMERIC NOT NULL DEFAULT 0,
   gross_sale_rate    NUMERIC NOT NULL DEFAULT 0,
@@ -109,13 +107,11 @@ CREATE TABLE IF NOT EXISTS inward_lots (
   invoice_id         TEXT,
   status             TEXT NOT NULL DEFAULT 'Draft',
   override_reason    TEXT,
-  akshaya_margin_per_mt NUMERIC NOT NULL DEFAULT 50,
   created_at         TIMESTAMPTZ DEFAULT NOW(),
   updated_at         TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE inward_lots DISABLE ROW LEVEL SECURITY;
 
--- ─── FARMER PAYOUTS ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS farmer_payouts (
   id             TEXT PRIMARY KEY,
   batch_ref      TEXT NOT NULL DEFAULT '',
@@ -138,7 +134,6 @@ CREATE TABLE IF NOT EXISTS farmer_payouts (
 );
 ALTER TABLE farmer_payouts DISABLE ROW LEVEL SECURITY;
 
--- ─── INVOICES ────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS invoices (
   id               TEXT PRIMARY KEY,
   invoice_no       TEXT NOT NULL DEFAULT '',
@@ -173,7 +168,6 @@ CREATE TABLE IF NOT EXISTS invoices (
 );
 ALTER TABLE invoices DISABLE ROW LEVEL SECURITY;
 
--- ─── VOUCHERS ────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS vouchers (
   id           TEXT PRIMARY KEY,
   voucher_no   TEXT NOT NULL DEFAULT '',
@@ -192,7 +186,6 @@ CREATE TABLE IF NOT EXISTS vouchers (
 );
 ALTER TABLE vouchers DISABLE ROW LEVEL SECURITY;
 
--- ─── LEDGER ENTRIES ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS ledger_entries (
   id              TEXT PRIMARY KEY,
   entry_date      DATE NOT NULL,
@@ -211,7 +204,6 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
 );
 ALTER TABLE ledger_entries DISABLE ROW LEVEL SECURITY;
 
--- ─── STOCK BATCHES ───────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS stock_batches (
   id             TEXT PRIMARY KEY,
   batch_ref      TEXT NOT NULL DEFAULT '',
@@ -229,7 +221,6 @@ CREATE TABLE IF NOT EXISTS stock_batches (
 );
 ALTER TABLE stock_batches DISABLE ROW LEVEL SECURITY;
 
--- ─── IMPORT BATCHES ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS import_batches (
   id              TEXT PRIMARY KEY,
   batch_ref       TEXT NOT NULL DEFAULT '',
@@ -241,13 +232,11 @@ CREATE TABLE IF NOT EXISTS import_batches (
   total_rows      INTEGER NOT NULL DEFAULT 0,
   mapped_rows     INTEGER NOT NULL DEFAULT 0,
   status          TEXT NOT NULL DEFAULT 'Pending',
-  source_pdf_url  TEXT DEFAULT NULL,
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE import_batches DISABLE ROW LEVEL SECURITY;
 
--- ─── APP USERS ───────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS app_users (
   id         TEXT PRIMARY KEY,
   name       TEXT NOT NULL DEFAULT '',
@@ -260,7 +249,6 @@ CREATE TABLE IF NOT EXISTS app_users (
 );
 ALTER TABLE app_users DISABLE ROW LEVEL SECURITY;
 
--- ─── AUDIT LOGS ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS audit_logs (
   id          TEXT PRIMARY KEY,
   logged_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -17,12 +17,11 @@ export async function POST(req: NextRequest) {
       hsn: body.hsn ?? "",
       uom: body.uom ?? "MT",
       gstRate: Number(body.gstRate ?? 0),
+      cessRate: Number(body.cessRate ?? 1),
       category: body.category ?? "Grain",
       defaultGrossSaleRate: Number(body.defaultGrossSaleRate ?? 0),
-      settlementMethod: body.settlementMethod ?? "",
-      qualityParams: Array.isArray(body.qualityParams)
-        ? body.qualityParams
-        : String(body.qualityParams ?? "").split(",").map((s: string) => s.trim()).filter(Boolean),
+      pricingModel: body.pricingModel ?? "deduction",
+      params: Array.isArray(body.params) ? body.params : [],
       status: body.status ?? "Draft",
     });
     return NextResponse.json(saved, { status: 201 });

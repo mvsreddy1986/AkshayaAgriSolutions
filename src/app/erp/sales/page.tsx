@@ -1,10 +1,21 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { STOCK_BATCHES, INVOICES } from "../../../lib/data/seed";
+import {
+  ShoppingCart, Package2, BarChart3, Truck,
+  Plus, Check, RotateCcw, Download, Eye, Share2,
+} from "lucide-react";
 
 const TABS = ["Purchases", "Stock", "Trader Sales", "Dispatch"] as const;
 type Tab = (typeof TABS)[number];
+
+const SALES_TAB_ICONS = {
+  "Purchases": ShoppingCart,
+  "Stock": Package2,
+  "Trader Sales": BarChart3,
+  "Dispatch": Truck,
+} as const;
 
 const inr = (n: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
@@ -19,14 +30,14 @@ function StatusBadge({ status }: { status: string }) {
     Paid: "bg-[#f0fdf4] text-[#15803d]",
     Sent: "bg-[#eff6ff] text-[#1d4ed8]",
   };
-  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${map[status] ?? "bg-gray-100 text-gray-700"}`}>{status}</span>;
+  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${map[status] ?? "bg-gray-100 text-gray-700"}`}>{status}</span>;
 }
 
 function PurchasesTab() {
   return (
     <div className="grid gap-6">
       <div className="rounded-xl border border-[#d8decf] bg-white p-6">
-        <h3 className="mb-4 text-xl font-black">Record purchase from Sarvani (Model C)</h3>
+        <h3 className="mb-4 text-xl font-semibold">Record purchase from Sarvani (Model C)</h3>
         <p className="mb-5 text-sm text-[#60735d]">
           Model C: Purchase DDGS, WDG, CO2, or Corn Oil from Sarvani. Each purchase creates a stock batch. Accounting entry: Dr. Inventory / Cr. Sarvani Payable.
         </p>
@@ -41,27 +52,27 @@ function PurchasesTab() {
             ["Invoice date", "2026-05-05"],
             ["Payment terms (days)", "30"],
           ].map(([label, placeholder]) => (
-            <label key={label} className="grid gap-1.5 text-sm font-bold">
+            <label key={label} className="grid gap-1.5 text-sm font-medium">
               {label}
-              <input type="text" placeholder={placeholder} className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#172018]" />
+              <input type="text" placeholder={placeholder} className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#16a34a]" />
             </label>
           ))}
-          <label className="grid gap-1.5 text-sm font-bold">
+          <label className="grid gap-1.5 text-sm font-medium">
             Quality status
-            <select className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#172018]">
+            <select className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#16a34a]">
               <option>Pending quality check</option>
               <option>Approved</option>
               <option>Rejected</option>
             </select>
           </label>
-          <label className="grid gap-1.5 text-sm font-bold">
+          <label className="grid gap-1.5 text-sm font-medium">
             Quality notes
-            <input type="text" placeholder="Moisture %, protein %, FFA % etc." className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#172018]" />
+            <input type="text" placeholder="Moisture %, protein %, FFA % etc." className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#16a34a]" />
           </label>
         </div>
         <div className="mt-5 flex gap-3">
-          <button className="rounded-md bg-[#172018] px-5 py-2.5 text-sm font-black text-white">Record Purchase</button>
-          <button className="rounded-md border border-[#d7dfce] px-5 py-2.5 text-sm font-black">Reset</button>
+          <button className="btn btn-primary flex items-center gap-1.5"><Check size={14} />Record Purchase</button>
+          <button className="btn btn-ghost flex items-center gap-1.5"><RotateCcw size={14} />Reset</button>
         </div>
       </div>
     </div>
@@ -77,17 +88,17 @@ function StockTab() {
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-[#d8decf] bg-white p-5">
           <p className="text-sm text-[#60735d]">Total purchased (batches)</p>
-          <p className="mt-2 text-3xl font-black">{STOCK_BATCHES.length}</p>
+          <p className="mt-2 text-3xl font-bold">{STOCK_BATCHES.length}</p>
           <p className="mt-1 text-sm text-[#60735d]">{inr(totalCost)} total cost</p>
         </div>
         <div className="rounded-xl border border-[#d8decf] bg-white p-5">
           <p className="text-sm text-[#60735d]">Available stock value</p>
-          <p className="mt-2 text-3xl font-black">{inr(stockValue)}</p>
+          <p className="mt-2 text-3xl font-bold">{inr(stockValue)}</p>
           <p className="mt-1 text-sm text-[#60735d]">At purchase cost</p>
         </div>
         <div className="rounded-xl border border-[#d8decf] bg-white p-5">
           <p className="text-sm text-[#60735d]">Sold this month</p>
-          <p className="mt-2 text-3xl font-black">
+          <p className="mt-2 text-3xl font-bold">
             {INVOICES.filter((i) => i.businessModel === "C" && i.status !== "Draft").length} invoices
           </p>
           <p className="mt-1 text-sm text-[#15803d]">
@@ -98,12 +109,12 @@ function StockTab() {
 
       <div className="overflow-hidden rounded-xl border border-[#d8decf] bg-white">
         <div className="flex items-center justify-between border-b border-[#edf0e8] px-5 py-4">
-          <h3 className="text-lg font-black">Stock batches</h3>
-          <button className="rounded-md border border-[#9baa91] px-3.5 py-1.5 text-sm font-black hover:bg-[#f3f6ef]">Export</button>
+          <h3 className="text-lg font-semibold">Stock batches</h3>
+          <button className="btn btn-ghost flex items-center gap-1.5"><Download size={14} />Export</button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-[#f3f6ef] text-xs font-black uppercase tracking-[0.1em] text-[#60735d]">
+            <thead className="bg-[#f3f6ef] text-xs font-semibold uppercase tracking-[0.1em] text-[#60735d]">
               <tr>
                 {["Batch", "Material", "Purchased", "Opening qty", "Sold qty", "Available qty", "Purchase rate", "Stock value", "Quality", "Action"].map((h) => (
                   <th key={h} className="px-5 py-3.5">{h}</th>
@@ -115,7 +126,7 @@ function StockTab() {
                 const pct = (b.soldQty / b.openingQty) * 100;
                 return (
                   <tr key={b.id} className="border-t border-[#edf0e8] hover:bg-[#fafcf8]">
-                    <td className="px-5 py-3.5 font-black">{b.batchRef}</td>
+                    <td className="px-5 py-3.5 font-semibold">{b.batchRef}</td>
                     <td className="px-5 py-3.5 font-bold">{b.materialName}</td>
                     <td className="px-5 py-3.5 text-[#536251]">{b.purchaseDate}</td>
                     <td className="px-5 py-3.5">{b.openingQty.toLocaleString("en-IN")}</td>
@@ -123,12 +134,12 @@ function StockTab() {
                       <span className="font-bold text-[#15803d]">{b.soldQty.toLocaleString("en-IN")}</span>
                       <span className="ml-1 text-xs text-[#60735d]">({pct.toFixed(0)}%)</span>
                     </td>
-                    <td className="px-5 py-3.5 font-black">{b.availableQty.toLocaleString("en-IN")}</td>
+                    <td className="px-5 py-3.5 font-semibold">{b.availableQty.toLocaleString("en-IN")}</td>
                     <td className="px-5 py-3.5 text-[#536251]">₹{b.purchaseRate.toLocaleString("en-IN")}</td>
                     <td className="px-5 py-3.5 font-bold">{inr(b.availableQty * b.purchaseRate)}</td>
                     <td className="px-5 py-3.5"><StatusBadge status={b.qualityStatus} /></td>
                     <td className="px-5 py-3.5">
-                      <button className="text-xs font-black text-[#172018] hover:underline">Create sale</button>
+                      <button className="text-xs font-semibold text-[#172018] hover:underline inline-flex items-center gap-1"><Plus size={12} />Create sale</button>
                     </td>
                   </tr>
                 );
@@ -148,7 +159,7 @@ function TraderSalesTab() {
   return (
     <div className="grid gap-6">
       <div className="rounded-xl border border-[#d8decf] bg-white p-6">
-        <h3 className="mb-4 text-xl font-black">Create trader sale invoice (Model C)</h3>
+        <h3 className="mb-4 text-xl font-semibold">Create trader sale invoice (Model C)</h3>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {[
             ["Trader name", "Sri Lakshmi Feeds"],
@@ -159,16 +170,16 @@ function TraderSalesTab() {
             ["Credit days", "15"],
             ["Delivery date", "2026-05-12"],
           ].map(([label, placeholder]) => (
-            <label key={label} className="grid gap-1.5 text-sm font-bold">
+            <label key={label} className="grid gap-1.5 text-sm font-medium">
               {label}
-              <input type="text" placeholder={placeholder} className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#172018]" />
+              <input type="text" placeholder={placeholder} className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#16a34a]" />
             </label>
           ))}
         </div>
 
         {/* Invoice preview */}
         <div className="mt-5 rounded-lg border border-[#d8decf] bg-[#f8faf5] p-4">
-          <p className="mb-3 text-sm font-black text-[#172018]">Invoice preview</p>
+          <p className="mb-3 text-sm font-semibold text-[#172018]">Invoice preview</p>
           <div className="grid gap-1.5 text-sm">
             {[
               ["Invoice no", "AAS-2627-0125 (next)"],
@@ -189,20 +200,20 @@ function TraderSalesTab() {
         </div>
 
         <div className="mt-5 flex gap-3">
-          <button className="rounded-md bg-[#172018] px-5 py-2.5 text-sm font-black text-white">Generate Invoice Draft</button>
-          <button className="rounded-md border border-[#d7dfce] px-5 py-2.5 text-sm font-black">Reset</button>
+          <button className="btn btn-primary flex items-center gap-1.5"><Plus size={14} />Generate Invoice Draft</button>
+          <button className="btn btn-ghost flex items-center gap-1.5"><RotateCcw size={14} />Reset</button>
         </div>
       </div>
 
       {/* Trader invoice list */}
       <div className="overflow-hidden rounded-xl border border-[#d8decf] bg-white">
         <div className="flex items-center justify-between border-b border-[#edf0e8] px-5 py-4">
-          <h3 className="text-lg font-black">Trader sales invoices</h3>
-          <button className="rounded-md border border-[#9baa91] px-3.5 py-1.5 text-sm font-black hover:bg-[#f3f6ef]">Export</button>
+          <h3 className="text-lg font-semibold">Trader sales invoices</h3>
+          <button className="btn btn-ghost flex items-center gap-1.5"><Download size={14} />Export</button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-[#f3f6ef] text-xs font-black uppercase tracking-[0.1em] text-[#60735d]">
+            <thead className="bg-[#f3f6ef] text-xs font-semibold uppercase tracking-[0.1em] text-[#60735d]">
               <tr>
                 {["Invoice", "Date", "Trader", "Material", "Qty", "Sale rate", "Invoice value", "Paid", "Due", "Status", "Action"].map((h) => (
                   <th key={h} className="px-5 py-3.5">{h}</th>
@@ -212,7 +223,7 @@ function TraderSalesTab() {
             <tbody>
               {traderInvoices.map((inv) => (
                 <tr key={inv.id} className="border-t border-[#edf0e8] hover:bg-[#fafcf8]">
-                  <td className="px-5 py-3.5 font-black">{inv.invoiceNo}</td>
+                  <td className="px-5 py-3.5 font-semibold">{inv.invoiceNo}</td>
                   <td className="px-5 py-3.5 text-[#536251]">{inv.invoiceDate}</td>
                   <td className="px-5 py-3.5 font-bold">{inv.partyName}</td>
                   <td className="px-5 py-3.5 text-[#536251]">{inv.materialName}</td>
@@ -220,12 +231,12 @@ function TraderSalesTab() {
                   <td className="px-5 py-3.5 text-[#536251]">₹{inv.grossRate.toLocaleString("en-IN")}</td>
                   <td className="px-5 py-3.5 font-bold">{inr(inv.totalValue)}</td>
                   <td className="px-5 py-3.5 text-[#15803d]">{inr(inv.amountPaid)}</td>
-                  <td className="px-5 py-3.5 font-black">{inr(inv.amountDue)}</td>
+                  <td className="px-5 py-3.5 font-semibold">{inr(inv.amountDue)}</td>
                   <td className="px-5 py-3.5"><StatusBadge status={inv.status} /></td>
                   <td className="px-5 py-3.5">
                     <div className="flex gap-2">
-                      <button className="text-xs font-black text-[#172018] hover:underline">View</button>
-                      <button className="text-xs font-black text-[#1d4ed8] hover:underline">Share</button>
+                      <button className="text-xs font-semibold text-[#172018] hover:underline inline-flex items-center gap-1"><Eye size={12} />View</button>
+                      <button className="text-xs font-semibold text-[#1d4ed8] hover:underline inline-flex items-center gap-1"><Share2 size={12} />Share</button>
                     </div>
                   </td>
                 </tr>
@@ -242,7 +253,7 @@ function DispatchTab() {
   return (
     <div className="grid gap-6">
       <div className="rounded-xl border border-[#d8decf] bg-white p-6">
-        <h3 className="mb-4 text-xl font-black">Create trader dispatch</h3>
+        <h3 className="mb-4 text-xl font-semibold">Create trader dispatch</h3>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {[
             ["Trader", "Sri Lakshmi Feeds"],
@@ -255,26 +266,26 @@ function DispatchTab() {
             ["E-way bill no", ""],
             ["Expected delivery date", "2026-05-13"],
           ].map(([label, placeholder]) => (
-            <label key={label} className="grid gap-1.5 text-sm font-bold">
+            <label key={label} className="grid gap-1.5 text-sm font-medium">
               {label}
-              <input type="text" placeholder={placeholder} className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#172018]" />
+              <input type="text" placeholder={placeholder} className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#16a34a]" />
             </label>
           ))}
-          <label className="grid gap-1.5 text-sm font-bold sm:col-span-2 xl:col-span-3">
+          <label className="grid gap-1.5 text-sm font-medium sm:col-span-2 xl:col-span-3">
             Invoice link
-            <input type="text" placeholder="AAS-2627-0124 — links dispatch to invoice for delivery confirmation" className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#172018]" />
+            <input type="text" placeholder="AAS-2627-0124 — links dispatch to invoice for delivery confirmation" className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#16a34a]" />
           </label>
         </div>
         <div className="mt-5 flex gap-3">
-          <button className="rounded-md bg-[#172018] px-5 py-2.5 text-sm font-black text-white">Create Dispatch</button>
-          <button className="rounded-md border border-[#d7dfce] px-5 py-2.5 text-sm font-black">Reset</button>
+          <button className="btn btn-primary flex items-center gap-1.5"><Check size={14} />Create Dispatch</button>
+          <button className="btn btn-ghost flex items-center gap-1.5"><RotateCcw size={14} />Reset</button>
         </div>
       </div>
 
       <div className="rounded-xl border border-[#d8decf] bg-white p-5">
-        <h3 className="mb-4 text-lg font-black">Recent dispatches</h3>
+        <h3 className="mb-4 text-lg font-semibold">Recent dispatches</h3>
         <table className="w-full text-sm">
-          <thead className="text-xs font-black uppercase tracking-[0.1em] text-[#60735d]">
+          <thead className="text-xs font-semibold uppercase tracking-[0.1em] text-[#60735d]">
             <tr className="border-b border-[#edf0e8]">
               {["Dispatch ref", "Trader", "Material", "Qty", "Vehicle", "Date", "Invoice", "Status"].map((h) => (
                 <th key={h} className="px-4 py-3 text-left">{h}</th>
@@ -283,7 +294,7 @@ function DispatchTab() {
           </thead>
           <tbody>
             <tr className="border-t border-[#edf0e8] hover:bg-[#fafcf8]">
-              <td className="px-4 py-3 font-black">DS-2627-0031</td>
+              <td className="px-4 py-3 font-semibold">DS-2627-0031</td>
               <td className="px-4 py-3">Sri Lakshmi Feeds</td>
               <td className="px-4 py-3 text-[#536251]">DDGS</td>
               <td className="px-4 py-3 font-bold">18.50 MT</td>
@@ -306,9 +317,14 @@ export default function SalesPage() {
   return (
     <div className="grid gap-5">
       <div className="flex gap-2 overflow-x-auto">
-        {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)} className={`shrink-0 rounded-md px-4 py-2 text-sm font-black transition ${tab === t ? "bg-[#172018] text-white" : "border border-[#d7dfce] bg-white text-[#40513d] hover:bg-[#f3f6ef]"}`}>{t}</button>
-        ))}
+        {TABS.map((t) => {
+          const TabIcon = SALES_TAB_ICONS[t];
+          return (
+            <button key={t} onClick={() => setTab(t)} className={`shrink-0 rounded-lg px-4 py-1.5 text-sm font-semibold transition-all flex items-center gap-1.5 ${tab === t ? "bg-[var(--ink)] text-white shadow-sm" : "border border-[var(--border)] bg-[var(--card)] text-[var(--ink-2)] hover:bg-[var(--muted)]"}`}>
+              <TabIcon size={14} />{t}
+            </button>
+          );
+        })}
       </div>
       {tab === "Purchases" && <PurchasesTab />}
       {tab === "Stock" && <StockTab />}

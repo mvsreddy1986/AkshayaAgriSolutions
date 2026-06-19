@@ -13,6 +13,7 @@ export async function GET(req: NextRequest) {
         id: r.id, batchRef: r.batch_ref, importType: r.import_type, businessModel: r.business_model,
         sourceFilename: r.source_filename, reportDate: r.report_date, partyName: r.party_name,
         totalRows: r.total_rows, mappedRows: r.mapped_rows, status: r.status,
+        sourcePdfUrl: r.source_pdf_url ?? null,
       }))
     );
   } catch (e) {

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listLots, createLot } from "../../../lib/db";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   try {
     const model = req.nextUrl.searchParams.get("model") ?? undefined;
@@ -42,6 +44,9 @@ export async function POST(req: NextRequest) {
       invoiceId: body.invoiceId ?? null,
       status: body.status ?? "Draft",
       overrideReason: body.overrideReason ?? null,
+      akshayaMarginPerMT: Number(body.akshayaMarginPerMT ?? 50),
+      holdPenalty: Number(body.holdPenalty ?? 0),
+      holdPenaltyNote: body.holdPenaltyNote ?? null,
     });
     return NextResponse.json(saved, { status: 201 });
   } catch (e) {

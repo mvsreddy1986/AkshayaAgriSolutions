@@ -1,13 +1,14 @@
 "use client";
 import { useMemo } from "react";
-import { calculateLotSettlement, validateLotForSettlement } from "@/lib/settlement/engine";
-import type { InwardLot, QualityRule, MaterialParam } from "@/lib/types";
+import { calculateLotSettlement, validateLotForSettlement, paramQualityAccount } from "@/lib/settlement/engine";
+import type { InwardLot, QualityRule, MaterialParam, Material } from "@/lib/types";
 
 interface Props {
   lot: InwardLot;
   rule: QualityRule | undefined;
   allRules: QualityRule[];
   materialParams?: MaterialParam[];
+  material?: Material;
   onClose: () => void;
   onApprove?: () => void;
 }
@@ -60,10 +61,11 @@ function DeductionRow({ label, weightKg, amount, breakdown, rejectTrigger }: {
   );
 }
 
-export default function SettlementPreview({ lot, rule, allRules, materialParams, onClose, onApprove }: Props) {
+export default function SettlementPreview({ lot, rule, allRules, materialParams, material, onClose, onApprove }: Props) {
+  const gstRate = (material?.gstRate ?? 0) / 100;
   const calc = useMemo(
-    () => (rule ? calculateLotSettlement(lot, rule) : null),
-    [lot, rule]
+    () => (rule ? calculateLotSettlement(lot, rule, material?.cessRate) : null),
+    [lot, rule, material]
   );
   const issues = useMemo(
     () => validateLotForSettlement(lot, allRules, materialParams),
@@ -122,7 +124,7 @@ export default function SettlementPreview({ lot, rule, allRules, materialParams,
             </div>
           )}
 
-          {/* Reject triggers */}
+          {/* Reject triggers (active hold) */}
           {calc?.hasRejectTrigger && (
             <div className="border border-red-200 rounded-xl bg-red-50 p-4">
               <p className="text-sm font-bold text-red-700">
@@ -130,6 +132,17 @@ export default function SettlementPreview({ lot, rule, allRules, materialParams,
               </p>
               <p className="text-xs text-red-600 mt-1">
                 This lot should move to QualityHold status. Review and override to proceed.
+              </p>
+            </div>
+          )}
+
+          {/* Extended deduction notice — hold accepted without fixed penalty */}
+          {!calc?.hasRejectTrigger && lot.overrideReason && (lot.holdPenalty ?? 0) === 0 && (
+            <div className="border border-amber-200 rounded-xl bg-amber-50 p-4">
+              <p className="text-sm font-semibold text-amber-800">Accepted from Quality Hold — deductions extended</p>
+              <p className="text-xs text-amber-700 mt-1">
+                Lot was on hold ({lot.overrideReason}). No fixed penalty — quality deductions are calculated using the
+                actual reading through the reject threshold.
               </p>
             </div>
           )}
@@ -163,7 +176,7 @@ export default function SettlementPreview({ lot, rule, allRules, materialParams,
                 {rule.pricingModel === "rate-slab" && calc && (
                   <Row label="Computed Rate" value={`₹${calc.grossSaleRate.toLocaleString("en-IN")}/MT`} highlight />
                 )}
-                <Row label="Cess Rate" value={`${rule.globalCessRate}%`} />
+                <Row label="Cess Rate" value={`${calc?.effectiveCessRate ?? rule.globalCessRate}%`} />
                 <Row label="Rule Valid" value={`${rule.validFrom} → ${rule.validTo ?? "open"}`} />
               </div>
             </section>
@@ -201,12 +214,12 @@ export default function SettlementPreview({ lot, rule, allRules, materialParams,
                   sub={rule?.pricingModel === "rate-slab" ? "Computed from quality reading" : "Pre-agreed rate"}
                 />
                 <Row
-                  label="Gross Sale Value"
-                  value={fmt(calc.grossSaleValue)}
-                  sub={`${fmtWt(calc.netPayableWeight)} × ₹${calc.grossSaleRate.toLocaleString("en-IN")}/MT`}
+                  label="Gross Sale Amount"
+                  value={fmt(Math.round(calc.netWeight * calc.grossSaleRate * 100) / 100)}
+                  sub={`${fmtWt(calc.netWeight)} × ₹${calc.grossSaleRate.toLocaleString("en-IN")}/MT (full net weight)`}
                   highlight
                 />
-                {/* Weight-based deductions (already reflected in grossSaleValue) */}
+                {/* Quality weight deductions — explicitly reduce the gross */}
                 {weightDeductionCalcs.filter(c => !c.rejectTrigger).map((c) => (
                   <DeductionRow
                     key={c.paramKey}
@@ -247,13 +260,31 @@ export default function SettlementPreview({ lot, rule, allRules, materialParams,
                     </p>
                   </div>
                 )}
+                {calc.cessPaid > 0 && (
+                  <div className="flex items-center justify-between px-4 py-2 bg-amber-50 border-b border-amber-100 text-xs text-amber-800">
+                    <div>
+                      <span className="font-semibold">Cess paid at gate (info only)</span>
+                      <span className="ml-2 text-amber-600">Already settled at mandi — not in this settlement</span>
+                    </div>
+                    <span className="font-semibold">₹{calc.cessPaid.toFixed(2)}</span>
+                  </div>
+                )}
                 <DeductionRow
-                  label={`Cess (${rule?.globalCessRate}% on net wt × rate)`}
+                  label={`Market Cess (${calc.effectiveCessRate}%) — balance`}
                   weightKg={0}
-                  amount={calc.cessAmount}
-                  breakdown={`${rule?.globalCessRate}% × ${fmtWt(calc.netWeight)} × ₹${calc.grossSaleRate}/MT = ₹${calc.cessAmount.toFixed(2)}`}
+                  amount={calc.cessBalance}
+                  breakdown={`${calc.effectiveCessRate}% × ₹${calc.grossSaleValue.toFixed(2)} = ₹${calc.cessTotal.toFixed(2)} total · ₹${calc.cessPaid.toFixed(2)} gate paid · balance ₹${calc.cessBalance.toFixed(2)}`}
                   rejectTrigger={false}
                 />
+                {calc.holdPenalty > 0 && (
+                  <DeductionRow
+                    label="Quality Hold Penalty"
+                    weightKg={0}
+                    amount={calc.holdPenalty}
+                    breakdown={lot.holdPenaltyNote ?? "Negotiated penalty for accepting out-of-spec lot"}
+                    rejectTrigger={false}
+                  />
+                )}
                 <div className="flex items-center justify-between py-3 mt-1 border-t-2 border-[#172018]">
                   <p className="text-base font-black text-[#172018]">Net Settlement Value</p>
                   <p className="text-base font-black text-[#172018]">{fmt(calc.netSettlementValue)}</p>
@@ -276,42 +307,163 @@ export default function SettlementPreview({ lot, rule, allRules, materialParams,
                     </tr>
                   </thead>
                   <tbody>
-                    {[
-                      { acc: "1201 Sarvani Receivable", dr: calc.netSettlementValue * 1.05, cr: 0 },
-                      { acc: "3100 Sales — Commodity", dr: 0, cr: calc.netSettlementValue },
-                      { acc: "2201 CGST Payable", dr: 0, cr: calc.netSettlementValue * 0.025 },
-                      { acc: "2202 SGST Payable", dr: 0, cr: calc.netSettlementValue * 0.025 },
-                    ].map((row) => (
-                      <tr key={row.acc} className="border-t border-[#f0f4ec]">
-                        <td className="px-3 py-2">{row.acc}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-[#172018]">
-                          {row.dr > 0 ? fmt(row.dr) : "—"}
-                        </td>
-                        <td className="px-3 py-2 text-right font-semibold text-[#172018]">
-                          {row.cr > 0 ? fmt(row.cr) : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr className="border-t-2 border-[#172018] bg-[#f7faf4] font-bold">
-                      <td className="px-3 py-2 text-[#172018]">Total</td>
-                      <td className="px-3 py-2 text-right text-[#172018]">{fmt(calc.netSettlementValue * 1.05)}</td>
-                      <td className="px-3 py-2 text-right text-[#172018]">{fmt(calc.netSettlementValue * 1.05)}</td>
-                    </tr>
+                    {(() => {
+                      // Gross notional = full net weight at sale rate (base quality, pre-deduction)
+                      const grossNotional = Math.round(calc.netWeight * calc.grossSaleRate * 100) / 100;
+                      const gstAmount = Math.round(calc.netSettlementValue * gstRate * 100) / 100;
+                      const halfGst = Math.round(gstAmount / 2 * 100) / 100;
+
+                      // Weight-based quality deductions only (value-only are informational)
+                      const qualityRows = calc.paramCalcs
+                        .filter(c => c.valueDeduction > 0 && !c.rejectTrigger && c.weightDeductionKg > 0)
+                        .map(c => {
+                          const acc = paramQualityAccount(c.paramKey);
+                          return { acc: `${acc.code} ${acc.name}`, dr: c.valueDeduction, cr: 0 };
+                        });
+
+                      const rows: { acc: string; dr: number; cr: number; info?: boolean }[] = [
+                        { acc: "1201 Sarvani Receivable", dr: Math.round((calc.netSettlementValue + gstAmount) * 100) / 100, cr: 0 },
+                        ...(calc.cessBalance > 0 ? [{ acc: "5101 Market Cess — Balance", dr: calc.cessBalance, cr: 0 }] : []),
+                        ...(calc.cessPaid > 0 ? [{ acc: "5101 Market Cess — Gate (paid, info)", dr: calc.cessPaid, cr: 0, info: true }] : []),
+                        ...qualityRows,
+                        ...(calc.holdPenalty > 0 ? [{ acc: "4199 Quality Loss — Hold Penalty", dr: calc.holdPenalty, cr: 0 }] : []),
+                        { acc: "3100 Sales — Commodity", dr: 0, cr: grossNotional },
+                        ...(halfGst > 0 ? [
+                          { acc: "2201 CGST Payable", dr: 0, cr: halfGst },
+                          { acc: "2202 SGST Payable", dr: 0, cr: halfGst },
+                        ] : []),
+                      ];
+                      const total = Math.round((grossNotional + gstAmount) * 100) / 100;
+                      return (
+                        <>
+                          {rows.map((row) => (
+                            <tr key={row.acc} className={`border-t border-[#f0f4ec] ${row.info ? "opacity-50 italic" : ""}`}>
+                              <td className="px-3 py-2">{row.acc}</td>
+                              <td className={`px-3 py-2 text-right font-semibold ${row.info ? "text-amber-700" : "text-[#172018]"}`}>
+                                {row.dr > 0 ? fmt(row.dr) : "—"}
+                              </td>
+                              <td className={`px-3 py-2 text-right font-semibold ${row.info ? "text-amber-700" : "text-[#172018]"}`}>
+                                {row.cr > 0 ? fmt(row.cr) : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                          <tr className="border-t-2 border-[#172018] bg-[#f7faf4] font-bold">
+                            <td className="px-3 py-2 text-[#172018]">Total</td>
+                            <td className="px-3 py-2 text-right text-[#172018]">{fmt(total)}</td>
+                            <td className="px-3 py-2 text-right text-[#172018]">{fmt(total)}</td>
+                          </tr>
+                        </>
+                      );
+                    })()}
                   </tbody>
                 </table>
               </div>
-              <p className="text-xs text-[#5a7360] mt-1">GST @ 5% — intra-state supply to Andhra Pradesh</p>
+              <p className="text-xs text-[#5a7360] mt-1">
+                {gstRate === 0
+                  ? "GST exempt — agricultural commodity, intra-state Andhra Pradesh"
+                  : `GST @ ${gstRate * 100}% — intra-state supply`}
+              </p>
             </section>
           )}
 
+          {/* Supplier-side ledger */}
+          {calc && issues.length === 0 && !calc.hasRejectTrigger && lot.businessModel === "A" && (() => {
+            const spMargin = Math.round(lot.akshayaMarginPerMT * lot.netWeight * 100) / 100;
+            // Dr 5001 = gross notional (netWeight × rate, BEFORE quality deductions)
+            // This mirrors the Cr 3100 on the customer side so supplier sees the full picture.
+            const grossNotional = Math.round(calc.netWeight * calc.grossSaleRate * 100) / 100;
+            // Supplier receives: grossSaleValue − cessBalance − margin − holdPenalty
+            // cessPaid was already settled at the gate; only cessBalance flows through settlement
+            const supplierPayable = Math.round((calc.grossSaleValue - calc.cessBalance - spMargin - calc.holdPenalty) * 100) / 100;
+
+            // Build rows — info:true rows are greyed out / amber-badged; not posted to supplier's 2101 a/c
+            const spRows: { acc: string; dr: number; cr: number; info?: boolean }[] = [
+              { acc: "5001 Procurement — Commodity", dr: grossNotional, cr: 0 },
+              { acc: "2101 Supplier Payable", dr: 0, cr: supplierPayable },
+              // Quality deductions — shown for information only (not formally charged to supplier)
+              ...calc.paramCalcs
+                .filter(c => c.valueDeduction > 0 && !c.rejectTrigger)
+                .map(c => {
+                  const qa = paramQualityAccount(c.paramKey);
+                  return {
+                    acc: `${qa.code} ${qa.name}`,
+                    dr: 0, cr: c.valueDeduction, info: true as const,
+                  };
+                }),
+              // Cess balance — mirrors customer-side Dr 5101
+              ...(calc.cessBalance > 0
+                ? [{ acc: "5101 Market Cess — Balance", dr: 0, cr: calc.cessBalance }]
+                : []),
+              { acc: "3200 Akshaya Trading Margin", dr: 0, cr: spMargin },
+              ...(calc.holdPenalty > 0
+                ? [{ acc: "4199 Quality Hold Penalty", dr: 0, cr: calc.holdPenalty }]
+                : []),
+            ];
+            // Proof: supplierPayable + qualityDeductions + cessBalance + margin + holdPenalty
+            //      = (grossSaleValue − cessBalance − margin − holdPenalty) + qualityDeductions + cessBalance + margin + holdPenalty
+            //      = grossSaleValue + qualityDeductions = grossNotional ✓
+
+            return (
+              <section>
+                <p className="text-xs font-bold uppercase tracking-wider text-[#5a7360] mb-2">Supplier Payout (preview)</p>
+                <div className="border border-[#d1e0c8] rounded-xl overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-[#f7faf4]">
+                      <tr className="text-[#5a7360] text-left">
+                        <th className="px-3 py-2">Account</th>
+                        <th className="px-3 py-2 text-right">Dr</th>
+                        <th className="px-3 py-2 text-right">Cr</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {spRows.map((row) => (
+                        <tr
+                          key={row.acc}
+                          className={`border-t border-[#f0f4ec] ${row.info ? "opacity-60" : ""}`}
+                        >
+                          <td className={`px-3 py-2 ${row.info ? "italic text-[#9aad9c]" : ""}`}>
+                            {row.acc}
+                            {row.info && (
+                              <span className="ml-1.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-700 not-italic">
+                                info
+                              </span>
+                            )}
+                          </td>
+                          <td className={`px-3 py-2 text-right font-semibold ${row.info ? "text-[#9aad9c]" : "text-[#172018]"}`}>
+                            {row.dr > 0 ? fmt(row.dr) : "—"}
+                          </td>
+                          <td className={`px-3 py-2 text-right font-semibold ${row.info ? "text-[#9aad9c]" : "text-[#172018]"}`}>
+                            {row.cr > 0 ? fmt(row.cr) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="border-t-2 border-[#172018] bg-[#f7faf4] font-bold">
+                        <td className="px-3 py-2 text-[#172018]">Total</td>
+                        <td className="px-3 py-2 text-right text-[#172018]">{fmt(grossNotional)}</td>
+                        <td className="px-3 py-2 text-right text-[#172018]">{fmt(grossNotional)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-xs text-[#5a7360] mt-1.5">
+                  <strong>Net to supplier (2101):</strong> {fmt(supplierPayable)}
+                  {" · "}Akshaya margin ₹{lot.akshayaMarginPerMT}/MT × {lot.netWeight.toFixed(3)} MT = {fmt(spMargin)}
+                  {calc.cessBalance > 0 && ` · Cess balance ${fmt(calc.cessBalance)} deducted`}
+                  {calc.cessPaid > 0 && ` · Gate cess ${fmt(calc.cessPaid)} already settled at mandi`}
+                  {calc.holdPenalty > 0 && ` · Hold penalty ${fmt(calc.holdPenalty)} deducted`}
+                </p>
+              </section>
+            );
+          })()}
+
           {/* Actions */}
           <div className="flex gap-3 pt-2">
-            {onApprove && issues.length === 0 && calc && !calc.hasRejectTrigger && (
+            {onApprove && lot.status === "Approved" && issues.length === 0 && calc && !calc.hasRejectTrigger && (
               <button
                 onClick={onApprove}
                 className="flex-1 bg-[#172018] text-[#d8ff72] text-sm font-black py-3 rounded-xl hover:bg-[#2a3b29] transition"
               >
-                Approve & Post Settlement
+                Confirm &amp; Post Settlement
               </button>
             )}
             <button
