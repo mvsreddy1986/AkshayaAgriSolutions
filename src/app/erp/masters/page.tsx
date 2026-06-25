@@ -767,6 +767,15 @@ function QualityRulesTab({ rows, materials, loading, onRefresh }: { rows: Qualit
         <form onSubmit={handleSubmit} className="rounded-xl border border-[#d8decf] bg-white p-6 space-y-6">
           <p className="text-lg font-semibold">{editRow ? "Edit quality rule" : "New quality rule"}</p>
 
+          {editRow?.status === "Active" && (
+            <div className="flex items-start gap-3 rounded-xl border border-[#fde68a] bg-[#fffbeb] px-4 py-3 text-sm text-[#92400e]">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span>
+                <strong>Editing an Active rule.</strong> Already-settled lots are not affected — their settlement amounts are locked in the ledger. Only future settlements will use the updated parameters.
+              </span>
+            </div>
+          )}
+
           {/* Step 1: Material + global settings */}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <FieldLabel>
@@ -966,12 +975,13 @@ function QualityRulesTab({ rows, materials, loading, onRefresh }: { rows: Qualit
                             }} />
                             <IBtn icon={Trash2} title="Delete rule" variant="danger" onClick={() => setConfirmDelete(r.id)} />
                           </>}
-                          {r.status === "Active" && (
+                          {r.status === "Active" && <>
+                            <IBtn icon={Pencil} title="Edit active rule" variant="primary" onClick={() => openEdit(r)} />
                             <IBtn icon={Clock} title="Expire rule" onClick={async () => {
                               await fetch(`/api/quality-rules/${r.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "Expired" }) });
                               onRefresh();
                             }} />
-                          )}
+                          </>}
                           {r.status === "Expired" && (
                             <IBtn icon={RotateCcw} title="Reopen as Draft" onClick={async () => {
                               await fetch(`/api/quality-rules/${r.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "Draft" }) });

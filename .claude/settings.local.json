@@ -5,7 +5,20 @@
       "Bash(curl -sf http://localhost:3000/erp/procurement)",
       "Bash(curl -sf http://localhost:3000/erp/accounting)",
       "Bash(git add *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(node .claude/refine_prompt.js)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/refine_prompt.js"
+          }
+        ]
+      }
     ]
   }
 }

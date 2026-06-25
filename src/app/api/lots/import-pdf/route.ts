@@ -24,6 +24,11 @@ export interface ProductGroup {
 }
 
 function r3(n: number) { return Math.round(n * 1000) / 1000; }
+function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "object" && e !== null && "message" in e) return String((e as { message: unknown }).message);
+  return String(e);
+}
 
 function addToGroup(
   map: Map<string, ProductGroup>,
@@ -63,9 +68,11 @@ export async function POST(req: NextRequest) {
     ]);
 
     // Fetch existing challan refs to skip true duplicates
-    const { data: existingLots } = await supabase
+    // Use service-role admin client to bypass RLS and get all refs
+    const { data: existingLots, error: existingErr } = await adminSupabase
       .from("inward_lots")
       .select("document_ref");
+    if (existingErr) console.warn("[import-pdf] existingRefs query failed:", existingErr.message);
     const existingRefs = new Set((existingLots ?? []).map((r: Record<string, unknown>) => String(r.document_ref)));
 
     // Find Sarvani party (customer)
@@ -116,64 +123,70 @@ export async function POST(req: NextRequest) {
     }
 
     // Per-product summary maps
-    const parsedGroups = new Map<string, ProductGroup>();
+    const parsedGroups   = new Map<string, ProductGroup>();
     const importedGroups = new Map<string, ProductGroup>();
-    const duplicateGroups = new Map<string, ProductGroup>();  // pre-existing challans
-    const errorGroups = new Map<string, ProductGroup>();      // create failures
+    const duplicateGroups = new Map<string, ProductGroup>();
+    const errorGroups    = new Map<string, ProductGroup>();
 
-    // Create lots, skipping duplicates
     const created: InwardLot[] = [];
-    const duplicates: string[] = [];      // challan already in DB
-    const errorRows: { challan: string; reason: string }[] = [];  // create failures
+    const duplicates: string[] = [];
+    const errorRows: { challan: string; reason: string }[] = [];
+
+    // ── Phase 1: Sync prep — classify every challan without any DB calls ────────
+    type ValidLot = {
+      challanNo: string;
+      productKey: string;
+      grossSaleRate: number;
+      lotInput: Omit<InwardLot, "id">;
+    };
+    const toInsert: ValidLot[] = [];
 
     for (const p of parsed) {
-      // Match material: normalise both sides so "PADDY HUSK" ↔ "PADDYHUSK" ↔ "Paddy Husk" all match
       const pNorm = norm(p.product);
       const material = materials.find((m) => {
         const mNorm = norm(m.name);
         return mNorm === pNorm || mNorm.startsWith(pNorm) || pNorm.startsWith(mNorm);
       });
 
-      // Active GrossSale rate for material
       const rate = material
         ? rates.find((r) => r.materialId === material.id && r.rateType === "GrossSale" && !r.validTo) ??
           rates.find((r) => r.materialId === material.id && r.rateType === "GrossSale")
         : null;
-
       const grossSaleRate = rate?.rate ?? 0;
       const productKey = material?.name ?? p.product;
 
-      // Always track parsed summary (using matched material name)
       addToGroup(parsedGroups, productKey, p.grossWeightMT, p.netWeightMT, grossSaleRate);
 
-      // Skip if this challan already exists in DB
       if (existingRefs.has(p.challanNo)) {
         duplicates.push(p.challanNo);
         addToGroup(duplicateGroups, productKey, p.grossWeightMT, p.netWeightMT, grossSaleRate);
         continue;
       }
 
-      // Best active quality rule for material
-      const qualityRule = material
-        ? qualityRules.find((r) => r.materialId === material.id && r.status === "Active") ??
-          qualityRules.find((r) => r.materialId === material.id)
-        : null;
+      if (!material) {
+        errorRows.push({ challan: p.challanNo, reason: `No material found matching "${p.product}" — add it in Materials master first.` });
+        addToGroup(errorGroups, productKey, p.grossWeightMT, p.netWeightMT, 0);
+        continue;
+      }
+
+      const qualityRule = qualityRules.find((r) => r.materialId === material.id && r.status === "Active") ??
+        qualityRules.find((r) => r.materialId === material.id) ?? null;
 
       const netMT = p.netWeightMT;
-
-      try {
-        const lot = await createLot({
+      toInsert.push({
+        challanNo: p.challanNo,
+        productKey,
+        grossSaleRate,
+        lotInput: {
           documentRef: p.challanNo,
           businessModel: "A",
           lotDate: p.lotDate,
-          materialId: material?.id ?? "",
-          materialName: material?.name ?? p.product,
+          materialId: material.id,
+          materialName: material.name,
           customerId: sarvani?.id ?? "",
           customerName: sarvani?.name ?? "Sarvani Bio Fuels",
-          supplierId: null,
-          supplierName: null,
-          farmerId: null,
-          farmerName: null,
+          supplierId: null, supplierName: null,
+          farmerId: null, farmerName: null,
           vehicleNo: p.vehicleNo,
           grossWeight: p.grossWeightMT,
           tareWeight: p.tareWeightMT,
@@ -193,12 +206,25 @@ export async function POST(req: NextRequest) {
           akshayaMarginPerMT: 50,
           holdPenalty: 0,
           holdPenaltyNote: null,
-        });
+        },
+      });
+    }
+
+    // ── Phase 2: Parallel inserts — all valid lots fire concurrently ────────────
+    const insertResults = await Promise.allSettled(toInsert.map(({ lotInput }) => createLot(lotInput)));
+
+    for (let i = 0; i < toInsert.length; i++) {
+      const { challanNo, productKey, grossSaleRate, lotInput } = toInsert[i];
+      const result = insertResults[i];
+      if (result.status === "fulfilled") {
+        const lot = result.value;
         created.push(lot);
         addToGroup(importedGroups, lot.materialName, lot.grossWeight, lot.netWeight, lot.grossSaleRate);
-      } catch (e) {
-        errorRows.push({ challan: p.challanNo, reason: String(e) });
-        addToGroup(errorGroups, productKey, p.grossWeightMT, p.netWeightMT, grossSaleRate);
+      } else {
+        const reason = errMsg(result.reason);
+        console.error(`[import-pdf] createLot failed for ${challanNo}:`, result.reason);
+        errorRows.push({ challan: challanNo, reason });
+        addToGroup(errorGroups, productKey, lotInput.grossWeight, lotInput.netWeight, grossSaleRate);
       }
     }
 
@@ -236,6 +262,7 @@ export async function POST(req: NextRequest) {
       parseErrors: errors,
     });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    console.error("[import-pdf] top-level error:", e);
+    return NextResponse.json({ error: errMsg(e) }, { status: 500 });
   }
 }

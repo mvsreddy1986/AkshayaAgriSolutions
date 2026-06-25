@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getLot, listQualityRules, listMaterials, updateLot, createLedgerEntries } from "../../../../../lib/db";
+import { getLot, listQualityRules, listMaterials, updateLot, createLedgerEntries, createPayout, getInvoice, updateInvoice } from "../../../../../lib/db";
 import { calculateLotSettlement, paramQualityAccount } from "../../../../../lib/settlement/engine";
 import type { LedgerEntry } from "../../../../../lib/types";
 
@@ -48,7 +48,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     const lot = await getLot(id);
     if (lot.status !== "Approved") {
       return NextResponse.json(
-        { error: `Lot must be Approved before posting settlement. Current status: ${lot.status}` },
+        { error: `Lot must be Approved before posting settlement (complete quality readings first). Current status: ${lot.status}` },
         { status: 400 },
       );
     }
@@ -100,90 +100,137 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     });
 
     // ── CUSTOMER SIDE ──────────────────────────────────────────────────────────
+    //
+    // Two paths:
+    //   A) Lot already has a Tax Invoice (status = "Invoiced"):
+    //      Gross entry was posted when the invoice was saved (Dr 1201 / Cr 3100).
+    //      Post ONLY the Credit Note delta for deductions:
+    //        Dr 3100  Sales — Adjustment   deductionDelta
+    //        Cr 1201  Sarvani Receivable   deductionDelta
+    //      Also update the Invoice record: reduce amountDue by deductionDelta.
+    //      Narration references invoice no + challan no for traceability.
+    //
+    //   B) No invoice yet (status = "Approved"):
+    //      Post the original split entries (gross notional to 3100,
+    //      net receivable to 1201, cess + quality deductions separately).
+    //      This preserves backward compatibility for lots settled before invoicing.
 
-    entries.push(mk(
-      "1201", "Sarvani Biofuels Receivable",
-      customerReceivable, 0,
-      `Settlement ${lot.documentRef} — ${lot.lotDate} · ${lot.netWeight.toFixed(3)} MT ${lot.materialName}`,
-      lot.customerId || null, lot.customerName || "Sarvani Bio Fuels",
-    ));
+    let invoiceNo = lot.documentRef; // fallback narration ref
+    if (lot.invoiceId) {
+      // Path A — Credit Note for deductions
+      try {
+        const linkedInvoice = await getInvoice(lot.invoiceId);
+        invoiceNo = linkedInvoice.invoiceNo;
+      } catch { /* keep fallback */ }
 
-    if (calc.cessBalance > 0) {
+      const deductionDelta = r2(grossNotional - customerReceivable); // quality + cess deducted from AR
+      const cnNarration = `Credit Note | ${invoiceNo} | Challan ${lot.documentRef} | Quality & cess adjustments`;
+
+      if (deductionDelta > 0) {
+        entries.push(mk(
+          "3100", "Sales — Adjustment",
+          deductionDelta, 0,
+          cnNarration,
+        ));
+        entries.push(mk(
+          "1201", "Sarvani Biofuels Receivable",
+          0, deductionDelta,
+          cnNarration,
+          lot.customerId || null, lot.customerName || "Sarvani Bio Fuels",
+        ));
+      }
+
+      // Update Invoice: reduce amountDue by deductionDelta
+      if (lot.invoiceId && deductionDelta > 0) {
+        try {
+          const inv = await getInvoice(lot.invoiceId);
+          const newDue = r2(Math.max(0, inv.amountDue - deductionDelta));
+          const newStatus = newDue < 0.01 ? "Paid" : inv.status === "Paid" ? "Paid" : "Approved";
+          await updateInvoice(lot.invoiceId, { amountDue: newDue, status: newStatus });
+        } catch { /* non-fatal */ }
+      }
+    } else {
+      // Path B — no invoice yet; post the classic split customer-side entries
       entries.push(mk(
-        "5101", "Market Cess",
-        r2(calc.cessBalance), 0,
-        `Market cess balance (customer side) — ${ref}`,
+        "1201", "Sarvani Biofuels Receivable",
+        customerReceivable, 0,
+        `${lot.documentRef} | ${lot.lotDate} · ${lot.netWeight.toFixed(3)} MT ${lot.materialName}`,
+        lot.customerId || null, lot.customerName || "Sarvani Bio Fuels",
+      ));
+
+      if (calc.cessBalance > 0) {
+        entries.push(mk(
+          "5101", "Market Cess",
+          r2(calc.cessBalance), 0,
+          `Market cess balance (customer side) — ${lot.documentRef}`,
+        ));
+      }
+
+      for (const c of calc.paramCalcs) {
+        if (c.valueDeduction <= 0 || c.rejectTrigger || c.weightDeductionKg === 0) continue;
+        const qa = paramQualityAccount(c.paramKey);
+        entries.push(mk(
+          qa.code, qa.name,
+          r2(c.valueDeduction), 0,
+          `${c.label} ${typeof c.reading === "number" ? c.reading + "%" : c.reading} — ${lot.documentRef}`,
+        ));
+      }
+
+      entries.push(mk(
+        "3100", "Sales — Commodity",
+        0, grossNotional,
+        `Commodity sale — ${lot.documentRef}`,
       ));
     }
-
-    for (const c of calc.paramCalcs) {
-      if (c.valueDeduction <= 0 || c.rejectTrigger || c.weightDeductionKg === 0) continue;
-      const qa = paramQualityAccount(c.paramKey);
-      entries.push(mk(
-        qa.code, qa.name,
-        r2(c.valueDeduction), 0,
-        `${c.label} ${typeof c.reading === "number" ? c.reading + "%" : c.reading} (customer) — ${ref}`,
-      ));
-    }
-
-    entries.push(mk(
-      "3100", "Sales — Commodity",
-      0, grossNotional,
-      `Commodity sale — ${ref}`,
-    ));
 
     // ── SUPPLIER SIDE (Model A only) ───────────────────────────────────────────
     // Model B farmer payment is recorded separately via Finance > Payments flow.
 
     if (lot.businessModel === "A" && lot.supplierId) {
+      const supRef = `${lot.documentRef}${invoiceNo !== lot.documentRef ? " | " + invoiceNo : ""}`;
       entries.push(mk(
         "5001", "Procurement — Commodity",
         grossNotional, 0,
-        `Procurement ${lot.documentRef} — ${lot.netWeight.toFixed(3)} MT ${lot.materialName} @ ₹${Math.round(calc.grossSaleRate).toLocaleString("en-IN")}/MT`,
+        `Challan ${supRef} — ${lot.netWeight.toFixed(3)} MT ${lot.materialName} @ ₹${Math.round(calc.grossSaleRate).toLocaleString("en-IN")}/MT`,
         lot.supplierId, lot.supplierName || null,
       ));
 
-      // Cr quality loss per param (offsets customer Dr — passes quality cost to supplier)
       for (const c of calc.paramCalcs) {
         if (c.valueDeduction <= 0 || c.rejectTrigger || c.weightDeductionKg === 0) continue;
         const qa = paramQualityAccount(c.paramKey);
         entries.push(mk(
           qa.code, qa.name,
           0, r2(c.valueDeduction),
-          `${c.label} (supplier side — offsets customer Dr) — ${ref}`,
+          `${c.label} deduction | Challan ${lot.documentRef}`,
         ));
       }
 
-      // Cr 5101 cessBalance only — cessPaid was already settled at the gate outside this flow
       if (calc.cessBalance > 0) {
         entries.push(mk(
           "5101", "Market Cess",
           0, r2(calc.cessBalance),
-          `Market cess balance (supplier side) — ${ref}`,
+          `Market cess | Challan ${lot.documentRef}`,
         ));
       }
 
-      // Cr 3200 Akshaya Trading Margin
       entries.push(mk(
         "3200", "Akshaya Trading Margin",
         0, spMargin,
-        `Margin ₹${lot.akshayaMarginPerMT}/MT × ${lot.netWeight.toFixed(3)} MT — ${ref}`,
+        `Margin ₹${lot.akshayaMarginPerMT}/MT × ${lot.netWeight.toFixed(3)} MT | Challan ${lot.documentRef}`,
       ));
 
-      // Cr 4199 Quality Hold Penalty (if any)
       if (holdPenalty > 0) {
         entries.push(mk(
           "4199", "Quality Hold Penalty",
           0, holdPenalty,
-          `Hold penalty — ${ref}`,
+          `Hold penalty | Challan ${lot.documentRef}`,
         ));
       }
 
-      // Cr 2101 Supplier Payable
       entries.push(mk(
         "2101", "Supplier Payable",
         0, supplierPayable,
-        `Payable to ${lot.supplierName || "supplier"} — ${ref}`,
+        `Payable to ${lot.supplierName || "supplier"} | Challan ${lot.documentRef}`,
         lot.supplierId, lot.supplierName || null,
       ));
     }
@@ -191,12 +238,44 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     // 5 — Write all entries atomically and mark Settled.
     // Also write back the engine's authoritative grossSaleValue and netPayableWeight so
     // the lot queue column always reflects what was actually posted to the ledger.
+    // Terminal status: "Invoiced" if this lot was already linked to a Tax Invoice
+    // (Credit Note path above), otherwise "Settled" for post-settlement invoicing later.
+    const finalStatus = lot.invoiceId ? "Invoiced" : "Settled";
+
     await createLedgerEntries(entries);
     const settled = await updateLot(id, {
-      status: "Settled",
+      status: finalStatus,
       grossSaleValue:   calc.grossSaleValue,
       netPayableWeight: calc.netPayableWeight,
     });
+
+    // 6 — Create payout record so the supplier/farmer obligation is trackable.
+    //     Model A: payee is the supplier (supplierId/supplierName).
+    //     Model B: payee is the farmer (farmerId/farmerName); net is gross − cess − hold penalty
+    //              (no Akshaya margin on Model B direct farmer purchases).
+    const payeeId   = lot.businessModel === "A" ? (lot.supplierId ?? "") : (lot.farmerId ?? "");
+    const payeeName = lot.businessModel === "A" ? (lot.supplierName ?? "") : (lot.farmerName ?? "");
+    const totalDeductions = r2(calc.cessBalance + spMargin + holdPenalty);
+
+    if (payeeId) {
+      await createPayout({
+        batchRef:      `PAY-${lot.documentRef}`,
+        farmerId:      payeeId,
+        farmerName:    payeeName,
+        inwardLotId:   lot.id,
+        documentRef:   lot.documentRef,
+        payoutDate:    today,
+        materialName:  lot.materialName,
+        quantity:      calc.netPayableWeight,        // MT
+        rate:          calc.grossSaleRate,            // ₹/MT
+        grossAmount:   calc.grossSaleValue,
+        deductions:    totalDeductions,
+        netAmount:     supplierPayable,
+        paymentMode:   "NEFT",
+        paymentRef:    "",
+        paymentStatus: "Pending",
+      });
+    }
 
     return NextResponse.json({
       lot: settled,
@@ -204,8 +283,10 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       summary: {
         customerReceivable,
         supplierPayable: lot.businessModel === "A" ? supplierPayable : null,
-        marginPosted: lot.businessModel === "A" ? spMargin : null,
+        marginPosted:    lot.businessModel === "A" ? spMargin : null,
         grossNotional,
+        payoutCreated:   !!payeeId,
+        payoutRef:       payeeId ? `PAY-${lot.documentRef}` : null,
       },
     });
   } catch (e) {

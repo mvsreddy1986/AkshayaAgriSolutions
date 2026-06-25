@@ -322,10 +322,10 @@ export async function listLots(model?: string): Promise<InwardLot[]> {
   return (data ?? []).map(lotFromDb);
 }
 
-const OPTIONAL_LOT_COLS = ["akshaya_margin_per_mt", "hold_penalty", "hold_penalty_note"];
+const OPTIONAL_LOT_COLS = ["akshaya_margin_per_mt", "hold_penalty", "hold_penalty_note", "override_reason"];
 
 export async function createLot(l: Omit<InwardLot, "id">): Promise<InwardLot> {
-  const row = lotToDb({ ...l, id: `lot-${Date.now()}` });
+  const row = lotToDb({ ...l, id: `lot-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` });
   const { data, error } = await supabase.from("inward_lots").insert(row).select().single();
   if (error) {
     const missing = OPTIONAL_LOT_COLS.find(c => error.message.includes(c));
@@ -484,6 +484,26 @@ export function invToDb(inv: Partial<Invoice>): Record<string, unknown> {
   if (inv.status !== undefined) o.status = inv.status;
   if (inv.cancelledReason !== undefined) o.cancelled_reason = inv.cancelledReason ?? null;
   return o;
+}
+
+export async function getNextInvoiceNo(fyCode: string): Promise<string> {
+  const prefix = `AAS-${fyCode}-`;
+  const { data, error } = await supabase
+    .from("invoices")
+    .select("invoice_no")
+    .ilike("invoice_no", `${prefix}%`)
+    .order("invoice_no", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  if (!data || data.length === 0) return `${prefix}001`;
+  const seq = parseInt((data[0].invoice_no as string).slice(prefix.length), 10);
+  return `${prefix}${String(isNaN(seq) ? 1 : seq + 1).padStart(3, "0")}`;
+}
+
+export async function getInvoice(id: string): Promise<Invoice> {
+  const { data, error } = await supabase.from("invoices").select("*").eq("id", id).single();
+  if (error) throw error;
+  return invFromDb(data as Record<string, unknown>);
 }
 
 export async function listInvoices(): Promise<Invoice[]> {

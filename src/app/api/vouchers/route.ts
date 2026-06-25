@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listVouchers, createVoucher, createLedgerEntries } from "../../../lib/db";
-import type { LedgerEntry } from "../../../lib/types";
+import { listVouchers, createVoucher, createLedgerEntries, getInvoice, updateInvoice, updateVoucher } from "../../../lib/db";
+import type { Invoice, LedgerEntry } from "../../../lib/types";
+
+function r2(n: number) { return Math.round(n * 100) / 100; }
 
 export async function GET(req: NextRequest) {
   try {
@@ -72,6 +74,43 @@ export async function POST(req: NextRequest) {
     }
 
     if (entries.length > 0) await createLedgerEntries(entries);
+
+    // ── Invoice allocation (Receipt vouchers only) ────────────────────────────
+    // Walk the supplied invoice list in order, apply receipt amount to each
+    // invoice up to its outstanding balance. Update invoice amountPaid/Due/status,
+    // then mark the voucher Cleared (fully consumed) or keep it Posted (excess).
+    const allocatedTo: string[] = Array.isArray(body.allocatedTo) ? body.allocatedTo : [];
+    if (saved.voucherType === "Receipt" && allocatedTo.length > 0) {
+      let remaining = saved.amount;
+      const invoiceNos: string[] = [];
+      for (const invoiceId of allocatedTo) {
+        if (remaining < 0.01) break;
+        try {
+          const inv: Invoice = await getInvoice(invoiceId);
+          invoiceNos.push(inv.invoiceNo);
+          const toApply = Math.min(remaining, Math.max(0, inv.amountDue));
+          if (toApply < 0.01) continue;
+          const newPaid = r2(inv.amountPaid + toApply);
+          const newDue  = r2(Math.max(0, inv.amountDue - toApply));
+          const newStatus: Invoice["status"] = newDue < 0.01 ? "Paid" : "Partial";
+          await updateInvoice(invoiceId, { amountPaid: newPaid, amountDue: newDue, status: newStatus });
+          remaining = r2(remaining - toApply);
+        } catch { /* skip if invoice not found */ }
+      }
+
+      // Enrich ledger narration with invoice numbers for easy identification
+      if (invoiceNos.length > 0) {
+        const invRef = invoiceNos.join(", ");
+        const enrichedNarration = saved.narration
+          ? `${saved.narration} | ${invRef}`
+          : `Receipt against ${invRef}`;
+        await updateVoucher(saved.id, { narration: enrichedNarration });
+      }
+
+      const finalStatus = remaining < 0.01 ? "Cleared" : "Posted";
+      await updateVoucher(saved.id, { allocatedTo, status: finalStatus });
+      return NextResponse.json({ ...saved, allocatedTo, status: finalStatus }, { status: 201 });
+    }
 
     return NextResponse.json(saved, { status: 201 });
   } catch (e) {

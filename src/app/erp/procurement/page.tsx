@@ -5,6 +5,8 @@ import type { LotStatus, InwardLot, FarmerPayout, QualityRule, Material, Party, 
 import SettlementPreview from "../../../components/SettlementPreview";
 import { calculateLotSettlement } from "../../../lib/settlement/engine";
 import BatchInvoiceDialog from "../../../components/BatchInvoiceDialog";
+import TaxInvoiceDialog from "../../../components/TaxInvoiceDialog";
+import SettlementStatement from "../../../components/SettlementStatement";
 import {
   FileInput, Sprout, Scale, HandCoins,
   Plus, Upload, Bug, Trash2, FileText, Printer, Download,
@@ -771,6 +773,9 @@ function ModelATab() {
   const [searchText, setSearchText] = useState("");
   const [searchStatus, setSearchStatus] = useState<string>("");
   const [searchMaterialId, setSearchMaterialId] = useState<string>("");
+  const [selectedLotIds, setSelectedLotIds] = useState<Set<string>>(new Set());
+  const [showTaxInvoice, setShowTaxInvoice] = useState(false);
+  const [stmtLot, setStmtLot] = useState<InwardLot | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -945,7 +950,7 @@ function ModelATab() {
   }, [lots, filterBatchId, searchText, searchStatus, searchMaterialId]);
 
   return (
-    <div className="grid gap-6">
+    <div className="grid min-w-0 gap-6">
       {/* Dialogs */}
       {mappingLot && (
         <MappingDialog
@@ -967,6 +972,21 @@ function ModelATab() {
           qualityRule={qualityRules.find((r) => r.id === overrideLot.qualityRuleId)}
           onSaved={(saved) => { patchLot(saved); setOverrideLot(null); }}
           onClose={() => setOverrideLot(null)}
+        />
+      )}
+      {showTaxInvoice && (
+        <TaxInvoiceDialog
+          lots={lots.filter((l) => selectedLotIds.has(l.id))}
+          materials={materials}
+          onClose={() => setShowTaxInvoice(false)}
+        />
+      )}
+      {stmtLot && (
+        <SettlementStatement
+          lot={stmtLot}
+          material={materials.find((m) => m.id === stmtLot.materialId)}
+          party={parties.find((p) => p.id === (stmtLot.supplierId ?? stmtLot.farmerId ?? ""))}
+          onClose={() => setStmtLot(null)}
         />
       )}
       {previewLot && (
@@ -1187,11 +1207,28 @@ function ModelATab() {
             )}
           </div>
           <div className="flex gap-2">
+            {selectedLotIds.size > 0 && (() => {
+              const selectedLots = lots.filter((l) => selectedLotIds.has(l.id));
+              return (
+                <button
+                  onClick={() => setShowTaxInvoice(true)}
+                  className="btn btn-primary flex items-center gap-1.5"
+                  style={{ background: "#1e3a8a" }}
+                  title="Generate Tax Invoice"
+                >
+                  <Printer size={14} />
+                  Tax Invoice ({selectedLotIds.size})
+                </button>
+              );
+            })()}
             <button
               onClick={() => setShowLotForm((v) => !v)}
               className={showLotForm ? "btn btn-ghost flex items-center gap-1.5" : "btn btn-primary flex items-center gap-1.5"}
             >
               {showLotForm ? <><X size={14} />Cancel entry</> : <><Plus size={14} />Manual entry</>}
+            </button>
+            <button onClick={() => load()} className="btn btn-ghost flex items-center gap-1.5" title="Refresh lot list">
+              <Refresh size={14} />
             </button>
             <button className="btn btn-ghost flex items-center gap-1.5"><Download size={14} />Export</button>
           </div>
@@ -1293,43 +1330,60 @@ function ModelATab() {
             <table className="w-full text-left">
               <thead className="bg-[#f3f6ef] text-[10px] font-semibold uppercase tracking-widest text-[#60735d]">
                 <tr>
-                  <th className="px-3 py-2">Lot / Date</th>
-                  <th className="px-3 py-2">Material / Vehicle</th>
-                  <th className="px-3 py-2 text-right">Net (MT)</th>
-                  <th className="px-3 py-2 text-center">Quality</th>
-                  <th className="px-3 py-2 text-right">Rate</th>
-                  <th className="px-3 py-2">Supplier</th>
-                  <th className="px-3 py-2 text-right">Gross</th>
-                  <th className="px-3 py-2 text-right">Deductions</th>
-                  <th className="px-3 py-2 text-right">Receivable</th>
-                  <th className="px-3 py-2 text-right">Margin</th>
-                  <th className="px-3 py-2 text-right">Sup. Payable</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Actions</th>
+                  <th className="w-7 px-2 py-2 text-center">
+                    <input
+                      type="checkbox"
+                      checked={filteredLots.length > 0 && filteredLots.every((l) => selectedLotIds.has(l.id))}
+                      onChange={(e) => {
+                        setSelectedLotIds(e.target.checked ? new Set(filteredLots.map((l) => l.id)) : new Set());
+                      }}
+                      className="h-3.5 w-3.5 rounded accent-[#1e3a8a]"
+                    />
+                  </th>
+                  <th className="px-2.5 py-2">Lot</th>
+                  <th className="px-2.5 py-2 text-right">Net MT</th>
+                  <th className="px-2.5 py-2 text-center">Quality</th>
+                  <th className="px-2.5 py-2 text-right">Rate</th>
+                  <th className="px-2.5 py-2">Supplier</th>
+                  <th className="px-2.5 py-2 text-right">Deductions</th>
+                  <th className="px-2.5 py-2 text-right">Receivable</th>
+                  <th className="px-2.5 py-2 text-right">Sup. Payable</th>
+                  <th className="px-2.5 py-2 text-center">Status / Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredLots.map((lot) => (
-                  <tr key={lot.id} className="border-t border-[#edf0e8] hover:bg-[#fafcf8]">
-                    {/* Lot / Date */}
-                    <td className="px-3 py-2">
-                      <p className="text-xs font-semibold text-[#172018]">{lot.documentRef}</p>
-                      <p className="text-[10px] text-[#8fa88c] mt-0.5">{lot.lotDate}</p>
+                  <tr key={lot.id} className={`border-t border-[#edf0e8] hover:bg-[#fafcf8] ${selectedLotIds.has(lot.id) ? "bg-[#eff6ff]" : ""}`}>
+                    {/* Checkbox */}
+                    <td className="w-7 px-2 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedLotIds.has(lot.id)}
+                        onChange={(e) => {
+                          setSelectedLotIds((prev) => {
+                            const next = new Set(prev);
+                            e.target.checked ? next.add(lot.id) : next.delete(lot.id);
+                            return next;
+                          });
+                        }}
+                        className="h-3.5 w-3.5 rounded accent-[#1e3a8a]"
+                      />
                     </td>
-                    {/* Material / Vehicle */}
-                    <td className="px-3 py-2">
-                      <p className="text-xs font-medium text-[#172018]">{lot.materialName}</p>
-                      <p className="text-[10px] font-mono text-[#8fa88c] mt-0.5">{lot.vehicleNo}</p>
+                    {/* Lot — ref · date · material · vehicle merged into one cell */}
+                    <td className="px-2.5 py-2">
+                      <p className="font-mono text-xs font-semibold text-[#172018]">{lot.documentRef}</p>
+                      <p className="text-[10px] text-[#536251]">{lot.lotDate} · {lot.materialName}</p>
+                      {lot.vehicleNo && <p className="font-mono text-[10px] text-[#c5d0bf]">{lot.vehicleNo}</p>}
                     </td>
                     {/* Net weight */}
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-2.5 py-2 text-right">
                       <span className="text-xs font-bold text-[#172018]">{lot.netWeight.toFixed(3)}</span>
                     </td>
-                    {/* Quality readings — dynamic, all params */}
-                    <td className="px-3 py-2 text-center">
+                    {/* Quality readings */}
+                    <td className="px-2.5 py-2 text-center">
                       {(() => {
                         const SHORT: Record<string, string> = {
-                          moisture_pct: "M", fm_pct: "FM", bg_pct: "BG",
+                          moisture_pct: "M", fm_pct: "FM", broken_grain_pct: "BG",
                           gcv: "GCV", ash_pct: "Ash", protein_pct: "Prot",
                         };
                         const entries = Object.entries(lot.qualityReadings).filter(([, v]) => v !== "" && v !== null);
@@ -1351,30 +1405,24 @@ function ModelATab() {
                       })()}
                     </td>
                     {/* Rate */}
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-2.5 py-2 text-right">
                       <p className="text-xs font-bold text-[#172018]">{inr(lot.grossSaleRate)}</p>
                       <p className="text-[10px] text-[#8fa88c]">/MT</p>
                     </td>
                     {/* Supplier */}
-                    <td className="px-3 py-2">
+                    <td className="px-2.5 py-2">
                       {lot.supplierName
                         ? <span className="text-xs font-semibold text-[#172018]">{lot.supplierName}</span>
                         : <span className="inline-flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-[#dc2626]">⚠ Unmapped</span>}
                     </td>
-                    {/* Gross = netWeight × rate (before quality deductions) */}
-                    <td className="whitespace-nowrap px-3 py-2 text-right">
-                      {lot.grossSaleRate > 0
-                        ? <span className="text-xs font-bold text-[#15803d]">{inr(lot.grossSaleRate * lot.netWeight)}</span>
-                        : <span className="text-xs text-[#c5d0bf]">—</span>}
-                    </td>
-                    {/* Deductions = quality paramDeductions + cessBalance — inline sub-rows */}
-                    <td className="px-3 py-2 text-right">
+                    {/* Deductions — total + compact breakdown */}
+                    <td className="px-2.5 py-2 text-right">
                       {(() => {
                         const deductions = lot.paramDeductions ?? {};
                         const cessBalance = Math.max(0, lotCessTotal(lot) - lot.cessAmount);
                         const PARAM_LABELS: Record<string, string> = {
-                          moisture_pct: "Moisture", fm_pct: "FM", bg_pct: "Broken Grain",
-                          gcv: "GCV", ash_pct: "Ash", protein_pct: "Protein",
+                          moisture_pct: "M", fm_pct: "FM", broken_grain_pct: "BG",
+                          gcv: "GCV", ash_pct: "Ash", protein_pct: "Prot",
                         };
                         const qualityTotal = Object.values(deductions).reduce((s: number, v) => s + Number(v), 0);
                         const total = qualityTotal + cessBalance;
@@ -1394,8 +1442,8 @@ function ModelATab() {
                         );
                       })()}
                     </td>
-                    {/* Receivable = Gross − Deductions = grossSaleValue − cessBalance */}
-                    <td className="whitespace-nowrap px-3 py-2 text-right">
+                    {/* Receivable */}
+                    <td className="px-2.5 py-2 text-right">
                       {(() => {
                         const cessBalance = Math.max(0, lotCessTotal(lot) - lot.cessAmount);
                         const receivable = lot.grossSaleValue - cessBalance;
@@ -1404,85 +1452,78 @@ function ModelATab() {
                           : <span className="text-xs text-[#c5d0bf]">—</span>;
                       })()}
                     </td>
-                    {/* Margin */}
-                    <td className="whitespace-nowrap px-3 py-2 text-right">
-                      <span className="text-xs text-[#536251]">{inr(lot.akshayaMarginPerMT * lot.netWeight)}</span>
-                      <p className="text-[10px] text-[#c5d0bf]">₹{lot.akshayaMarginPerMT}/MT</p>
-                    </td>
-                    {/* Sup. Payable = Receivable − cess balance − margin − hold penalty */}
-                    <td className="whitespace-nowrap px-3 py-2 text-right">
+                    {/* Sup. Payable — payout prominent, margin as sub-text */}
+                    <td className="px-2.5 py-2 text-right">
                       {(() => {
                         const cessBalance = Math.max(0, lotCessTotal(lot) - lot.cessAmount);
                         const margin = lot.akshayaMarginPerMT * lot.netWeight;
                         const payout = lot.grossSaleValue - cessBalance - margin - (lot.holdPenalty ?? 0);
-                        return lot.grossSaleValue > 0
-                          ? <span className="text-xs font-bold text-[#1d4ed8]">{inr(payout)}</span>
-                          : <span className="text-xs text-[#c5d0bf]">—</span>;
+                        return lot.grossSaleValue > 0 ? (
+                          <>
+                            <span className="text-xs font-bold text-[#1d4ed8]">{inr(payout)}</span>
+                            <p className="text-[10px] text-[#c5d0bf]">Mgn {inr(margin)}</p>
+                          </>
+                        ) : (
+                          <span className="text-xs text-[#c5d0bf]">—</span>
+                        );
                       })()}
                     </td>
-                    {/* Status */}
-                    <td className="px-3 py-2">
+                    {/* Status + Actions combined — badge on top, icon row below */}
+                    <td className="px-2.5 py-2">
                       <StatusBadge status={lot.status} />
-                    </td>
-                    {/* Actions — icon buttons, sequential */}
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-1">
-                        {/* Draft → Map Supplier */}
+                      <div className="mt-1.5 flex items-center gap-0.5">
                         {lot.status === "Draft" && (
                           <button title="Map Supplier" onClick={() => setMappingLot(lot)}
-                            className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-600 text-white shadow-sm hover:bg-blue-700">
-                            <Link2 size={13} />
+                            className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-600 text-white shadow-sm hover:bg-blue-700">
+                            <Link2 size={11} />
                           </button>
                         )}
-                        {/* Mapped (no readings) → Enter Readings */}
                         {lot.status === "Mapped" && Object.keys(lot.qualityReadings).length === 0 && (
                           <button title="Enter Quality Readings" onClick={() => setEditQualityLot(lot)}
-                            className="flex h-7 w-7 items-center justify-center rounded-md bg-violet-600 text-white shadow-sm hover:bg-violet-700">
-                            <FlaskConical size={13} />
+                            className="flex h-6 w-6 items-center justify-center rounded-md bg-violet-600 text-white shadow-sm hover:bg-violet-700">
+                            <FlaskConical size={11} />
                           </button>
                         )}
-                        {/* Mapped (has readings) → Edit + Approve */}
                         {lot.status === "Mapped" && Object.keys(lot.qualityReadings).length > 0 && (
                           <>
                             <button title="Edit Readings" onClick={() => setEditQualityLot(lot)}
-                              className="flex h-7 w-7 items-center justify-center rounded-md border border-[#c8d4c0] bg-white text-[#536251] hover:bg-[#f0f4ec]">
-                              <Pencil size={12} />
+                              className="flex h-6 w-6 items-center justify-center rounded-md border border-[#c8d4c0] bg-white text-[#536251] hover:bg-[#f0f4ec]">
+                              <Pencil size={10} />
                             </button>
                             <button title="Approve Lot" onClick={() => handleApprove(lot)}
-                              className="flex h-7 w-7 items-center justify-center rounded-md bg-green-600 text-white shadow-sm hover:bg-green-700">
-                              <CheckCircle2 size={13} />
+                              className="flex h-6 w-6 items-center justify-center rounded-md bg-green-600 text-white shadow-sm hover:bg-green-700">
+                              <CheckCircle2 size={11} />
                             </button>
                           </>
                         )}
-                        {/* QualityHold → Re-read + Accept */}
                         {lot.status === "QualityHold" && (
                           <>
                             <button title="Edit Readings" onClick={() => setEditQualityLot(lot)}
-                              className="flex h-7 w-7 items-center justify-center rounded-md border border-[#c8d4c0] bg-white text-[#536251] hover:bg-[#f0f4ec]">
-                              <Pencil size={12} />
+                              className="flex h-6 w-6 items-center justify-center rounded-md border border-[#c8d4c0] bg-white text-[#536251] hover:bg-[#f0f4ec]">
+                              <Pencil size={10} />
                             </button>
                             <button title="Accept Lot (override hold)" onClick={() => setOverrideLot(lot)}
-                              className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-500 text-white shadow-sm hover:bg-amber-600">
-                              <ShieldCheck size={13} />
+                              className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-500 text-white shadow-sm hover:bg-amber-600">
+                              <ShieldCheck size={11} />
                             </button>
                           </>
                         )}
-                        {/* Approved → Settlement */}
                         {lot.status === "Approved" && (
                           <button title="Open Settlement" onClick={() => setPreviewLot(lot)}
-                            className="flex h-7 w-7 items-center justify-center rounded-md bg-[#172018] text-[#d8ff72] shadow-sm hover:bg-[#2a3b29]">
-                            <FileText size={13} />
+                            className="flex h-6 w-6 items-center justify-center rounded-md bg-[#172018] text-[#d8ff72] shadow-sm hover:bg-[#2a3b29]">
+                            <FileText size={11} />
                           </button>
                         )}
-                        {/* Complete */}
                         {(lot.status === "Settled" || lot.status === "Invoiced") && (
-                          <CheckCircle2 size={16} className="text-[#15803d]" />
+                          <button title="Settlement Statement" onClick={() => setStmtLot(lot)}
+                            className="flex h-6 w-6 items-center justify-center rounded-md bg-[#15803d] text-white shadow-sm hover:bg-[#166534]">
+                            <FileText size={11} />
+                          </button>
                         )}
-                        {/* Preview — available for any lot that has been mapped */}
                         {lot.status !== "Draft" && (
                           <button title="Preview Settlement" onClick={() => setPreviewLot(lot)}
-                            className="flex h-7 w-7 items-center justify-center rounded-md border border-[#c8d4c0] bg-white text-[#9aad9c] hover:text-[#172018] hover:bg-[#f0f4ec]">
-                            <Eye size={12} />
+                            className="flex h-6 w-6 items-center justify-center rounded-md border border-[#c8d4c0] bg-white text-[#9aad9c] hover:text-[#172018] hover:bg-[#f0f4ec]">
+                            <Eye size={10} />
                           </button>
                         )}
                       </div>
@@ -1867,14 +1908,12 @@ function SettlementsTab() {
   const [payouts, setPayouts] = useState<FarmerPayout[]>([]);
   const [lots, setLots] = useState<InwardLot[]>([]);
   const [loading, setLoading] = useState(true);
-  const [settling, setSettling] = useState<string | null>(null);
-  const [settleError, setSettleError] = useState<Record<string, string>>({});
 
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
-      fetch("/api/payouts", { cache: "no-store" }).then((r) => r.json()),
-      fetch("/api/lots", { cache: "no-store" }).then((r) => r.json()),
+      fetch("/api/payouts").then((r) => r.json()),
+      fetch("/api/lots").then((r) => r.json()),
     ]).then(([ps, ls]) => {
       setPayouts(Array.isArray(ps) ? ps : []);
       setLots(Array.isArray(ls) ? ls : []);
@@ -1882,19 +1921,6 @@ function SettlementsTab() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-
-  async function postSettle(lotId: string) {
-    setSettling(lotId);
-    setSettleError((prev) => { const n = { ...prev }; delete n[lotId]; return n; });
-    const res = await fetch(`/api/lots/${lotId}/settle`, { method: "POST" });
-    const d = await res.json().catch(() => ({}));
-    setSettling(null);
-    if (!res.ok) {
-      setSettleError((prev) => ({ ...prev, [lotId]: d.error ?? "Settlement failed" }));
-      return;
-    }
-    load();
-  }
 
   async function approvePayout(id: string) {
     await fetch("/api/payouts", {
@@ -1905,186 +1931,66 @@ function SettlementsTab() {
     load();
   }
 
-  const pendingLots    = lots.filter((l) => l.status === "Approved");
-  const settledLots    = lots.filter((l) => l.status === "Settled" || l.status === "Invoiced");
+  const approvedLots = lots.filter((l) => l.status === "Approved").length;
   const pendingPayouts = payouts.filter((f) => f.paymentStatus === "Pending");
-  const paidPayouts    = payouts.filter((f) => f.paymentStatus === "Paid");
-
-  const pendingValue  = pendingLots.reduce((s, l) => s + l.grossSaleValue - l.akshayaMarginPerMT * l.netWeight, 0);
-  const settledValue  = settledLots.reduce((s, l) => s + l.grossSaleValue, 0);
-  const pendingPayout = pendingPayouts.reduce((s, f) => s + f.netAmount, 0);
+  const paidPayouts = payouts.filter((f) => f.paymentStatus === "Paid");
 
   return (
     <div className="grid gap-6">
-      {/* KPI tiles */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          { label: "Pending settlement",  value: String(pendingLots.length),   sub: pendingLots.length > 0 ? `~${inr(pendingValue)} payable` : "All clear",      accent: pendingLots.length > 0 },
-          { label: "Settled lots",        value: String(settledLots.length),   sub: settledLots.length > 0 ? `${inr(settledValue)} gross` : "None yet" },
-          { label: "Farmer payouts due",  value: String(pendingPayouts.length), sub: pendingPayouts.length > 0 ? inr(pendingPayout) : "Nothing pending", accent: pendingPayouts.length > 0 },
-          { label: "Payouts released",    value: String(paidPayouts.length),   sub: "total paid" },
-        ].map(({ label, value, sub, accent }) => (
-          <div key={label} className={`rounded-xl border bg-white p-4 ${accent ? "border-amber-300 bg-amber-50" : "border-[#d8decf]"}`}>
-            <p className="text-xs text-[#60735d]">{label}</p>
-            <p className="mt-1.5 text-xl font-bold text-[#172018]">{value}</p>
-            {sub && <p className="mt-0.5 text-xs text-[#9aad9c]">{sub}</p>}
-          </div>
-        ))}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="rounded-xl border border-[#d8decf] bg-white p-5">
+          <p className="text-sm text-[#60735d]">Lots ready for settlement</p>
+          <p className="mt-2 text-3xl font-bold">{approvedLots}</p>
+        </div>
+        <div className="rounded-xl border border-[#d8decf] bg-white p-5">
+          <p className="text-sm text-[#60735d]">Pending farmer payouts</p>
+          <p className="mt-2 text-3xl font-bold">{pendingPayouts.length}</p>
+          <p className="mt-1 text-sm text-[#d97706]">{inr(pendingPayouts.reduce((s, f) => s + f.netAmount, 0))}</p>
+        </div>
+        <div className="rounded-xl border border-[#d8decf] bg-white p-5">
+          <p className="text-sm text-[#60735d]">Paid payouts</p>
+          <p className="mt-2 text-3xl font-bold">{paidPayouts.length}</p>
+        </div>
       </div>
 
-      {/* Pending settlement — actionable */}
       <div className="overflow-hidden rounded-xl border border-[#d8decf] bg-white">
         <div className="flex items-center justify-between border-b border-[#edf0e8] px-5 py-4">
-          <div>
-            <h3 className="text-lg font-semibold">Approved — awaiting settlement</h3>
-            <p className="mt-0.5 text-xs text-[#9aad9c]">Post settlement to record Dr/Cr entries in the ledger</p>
+          <h3 className="text-lg font-semibold">Farmer payout register</h3>
+          <div className="flex gap-2">
+            <button className="btn btn-ghost flex items-center gap-1.5"><Download size={14} />Export</button>
+            <button className="btn btn-primary flex items-center gap-1.5"><ArrowRight size={14} />Release batch</button>
           </div>
         </div>
-        {loading ? (
-          <p className="px-5 py-8 text-sm text-[#60735d]">Loading…</p>
-        ) : pendingLots.length === 0 ? (
-          <p className="px-5 py-8 text-center text-sm text-[#9aad9c]">No approved lots pending settlement.</p>
-        ) : (
+        {loading ? <p className="px-5 py-8 text-sm text-[#60735d]">Loading…</p> : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="bg-[#f3f6ef] text-[10px] font-semibold uppercase tracking-widest text-[#60735d]">
-                <tr>
-                  {["Lot / Date", "Model", "Material", "Supplier", "Net (MT)", "Gross Value", "Margin", "Sup. Payable", "Action"].map((h) => (
-                    <th key={h} className="whitespace-nowrap px-4 py-3.5">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pendingLots.map((lot) => {
-                  const margin    = lot.akshayaMarginPerMT * lot.netWeight;
-                  const payable   = lot.grossSaleValue - margin - (lot.holdPenalty ?? 0);
-                  const isLoading = settling === lot.id;
-                  const err       = settleError[lot.id];
-                  return (
-                    <tr key={lot.id} className="border-t border-[#edf0e8] hover:bg-[#fafcf8]">
-                      <td className="px-4 py-3">
-                        <p className="text-xs font-semibold">{lot.documentRef}</p>
-                        <p className="text-[10px] text-[#9aad9c]">{lot.lotDate}</p>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`rounded-md px-2 py-0.5 text-xs font-bold ${lot.businessModel === "A" ? "bg-[#172018] text-white" : "bg-[#405b3d] text-white"}`}>
-                          {lot.businessModel}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-[#536251]">{lot.materialName}</td>
-                      <td className="px-4 py-3 text-xs">{lot.supplierName ?? lot.farmerName ?? "—"}</td>
-                      <td className="px-4 py-3 text-right font-bold tabular-nums">{lot.netWeight.toFixed(3)}</td>
-                      <td className="px-4 py-3 text-right font-bold text-[#15803d]">{inr(lot.grossSaleValue)}</td>
-                      <td className="px-4 py-3 text-right text-[#536251]">{inr(margin)}</td>
-                      <td className="px-4 py-3 text-right font-bold text-[#1d4ed8]">{inr(payable)}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col gap-1">
-                          <button
-                            onClick={() => postSettle(lot.id)}
-                            disabled={isLoading}
-                            className="flex items-center gap-1.5 rounded-md bg-[#172018] px-3 py-1.5 text-xs font-semibold text-[#d8ff72] hover:bg-[#2a3b29] disabled:opacity-50"
-                          >
-                            <CheckCircle2 size={12} />{isLoading ? "Posting…" : "Post Settlement"}
-                          </button>
-                          {err && <p className="text-[10px] text-red-600">{err}</p>}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Settled lots — recent history */}
-      {settledLots.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-[#d8decf] bg-white">
-          <div className="border-b border-[#edf0e8] px-5 py-4">
-            <h3 className="text-lg font-semibold">Settled lots</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-[#f3f6ef] text-[10px] font-semibold uppercase tracking-widest text-[#60735d]">
-                <tr>
-                  {["Lot / Date", "Material", "Supplier", "Net (MT)", "Gross", "Margin", "Net Payout", "Status"].map((h) => (
-                    <th key={h} className="whitespace-nowrap px-4 py-3.5">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {settledLots.map((lot) => {
-                  const margin  = lot.akshayaMarginPerMT * lot.netWeight;
-                  const payout  = lot.grossSaleValue - margin - (lot.holdPenalty ?? 0);
-                  return (
-                    <tr key={lot.id} className="border-t border-[#edf0e8] hover:bg-[#fafcf8]">
-                      <td className="px-4 py-3">
-                        <p className="text-xs font-semibold">{lot.documentRef}</p>
-                        <p className="text-[10px] text-[#9aad9c]">{lot.lotDate}</p>
-                      </td>
-                      <td className="px-4 py-3 text-[#536251]">{lot.materialName}</td>
-                      <td className="px-4 py-3 text-xs">{lot.supplierName ?? lot.farmerName ?? "—"}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{lot.netWeight.toFixed(3)}</td>
-                      <td className="px-4 py-3 text-right font-bold text-[#15803d]">{inr(lot.grossSaleValue)}</td>
-                      <td className="px-4 py-3 text-right text-[#536251]">{inr(margin)}</td>
-                      <td className="px-4 py-3 text-right font-bold">{inr(payout)}</td>
-                      <td className="px-4 py-3"><StatusBadge status={lot.status} /></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Farmer payout register */}
-      <div className="overflow-hidden rounded-xl border border-[#d8decf] bg-white">
-        <div className="flex items-center justify-between border-b border-[#edf0e8] px-5 py-4">
-          <div>
-            <h3 className="text-lg font-semibold">Farmer payout register</h3>
-            <p className="mt-0.5 text-xs text-[#9aad9c]">Model B farmer payments</p>
-          </div>
-          <button className="btn btn-ghost flex items-center gap-1.5 text-xs"><Download size={13} />Export</button>
-        </div>
-        {loading ? (
-          <p className="px-5 py-8 text-sm text-[#60735d]">Loading…</p>
-        ) : payouts.length === 0 ? (
-          <p className="px-5 py-8 text-center text-sm text-[#9aad9c]">No farmer payouts recorded yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-[#f3f6ef] text-[10px] font-semibold uppercase tracking-widest text-[#60735d]">
-                <tr>
-                  {["Farmer","Lot ref","Material","Qty (MT)","Rate","Gross","Deductions","Net payout","Mode","Status","Action"].map((h) => (
-                    <th key={h} className="whitespace-nowrap px-4 py-3.5">{h}</th>
-                  ))}
-                </tr>
+              <thead className="bg-[#f3f6ef] text-xs font-semibold uppercase tracking-widest text-[#60735d]">
+                <tr>{["Farmer", "Lot ref", "Material", "Qty (MT)", "Rate (₹/MT)", "Gross", "Deductions", "Net payout", "Mode", "Status", "Action"].map((h) => <th key={h} className="px-4 py-3.5">{h}</th>)}</tr>
               </thead>
               <tbody>
                 {payouts.map((fp) => (
                   <tr key={fp.id} className="border-t border-[#edf0e8] hover:bg-[#fafcf8]">
-                    <td className="px-4 py-3 font-semibold">{fp.farmerName}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-[#536251]">{fp.documentRef}</td>
-                    <td className="px-4 py-3 text-[#536251]">{fp.materialName}</td>
-                    <td className="px-4 py-3 text-right tabular-nums font-bold">{fp.quantity.toFixed(3)}</td>
-                    <td className="px-4 py-3 text-right text-[#536251]">₹{fp.rate.toLocaleString("en-IN")}</td>
-                    <td className="px-4 py-3 text-right">{inr(fp.grossAmount)}</td>
-                    <td className="px-4 py-3 text-right text-[#dc2626]">{fp.deductions > 0 ? `−${inr(fp.deductions)}` : "—"}</td>
-                    <td className="px-4 py-3 text-right font-semibold">{inr(fp.netAmount)}</td>
-                    <td className="px-4 py-3 text-[#536251]">{fp.paymentMode || "—"}</td>
-                    <td className="px-4 py-3"><StatusBadge status={fp.paymentStatus} /></td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3.5 font-semibold">{fp.farmerName}</td>
+                    <td className="px-4 py-3.5 font-mono text-xs text-[#536251]">{fp.documentRef}</td>
+                    <td className="px-4 py-3.5 text-[#536251]">{fp.materialName}</td>
+                    <td className="px-4 py-3.5 font-bold">{fp.quantity.toFixed(2)}</td>
+                    <td className="px-4 py-3.5 text-[#536251]">₹{fp.rate.toLocaleString("en-IN")}</td>
+                    <td className="px-4 py-3.5">{inr(fp.grossAmount)}</td>
+                    <td className="px-4 py-3.5 text-[#dc2626]">({inr(fp.deductions)})</td>
+                    <td className="px-4 py-3.5 font-semibold">{inr(fp.netAmount)}</td>
+                    <td className="px-4 py-3.5 text-[#536251]">{fp.paymentMode || "—"}</td>
+                    <td className="px-4 py-3.5"><StatusBadge status={fp.paymentStatus} /></td>
+                    <td className="px-4 py-3.5">
                       {fp.paymentStatus === "Pending" ? (
                         <button title="Approve payout" onClick={() => approvePayout(fp.id)}
                           className="flex h-7 w-7 items-center justify-center rounded-md bg-green-600 text-white hover:bg-green-700">
                           <CheckCircle2 size={13} />
                         </button>
                       ) : (
-                        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-[#f0fdf4]">
-                          <CheckCircle2 size={13} className="text-[#15803d]" />
-                        </span>
+                        <button title="View payout"
+                          className="flex h-7 w-7 items-center justify-center rounded-md border border-[#c8d4c0] bg-white text-[#536251] hover:bg-[#f0f4ec]">
+                          <Eye size={13} />
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -2102,7 +2008,7 @@ export default function ProcurementPage() {
   const [tab, setTab] = useState<Tab>("Model A");
 
   return (
-    <div className="grid gap-5">
+    <div className="grid min-w-0 gap-5">
       <div className="flex gap-2 overflow-x-auto">
         {TABS.map((t) => (
           <button key={t} onClick={() => setTab(t)}

@@ -130,11 +130,21 @@ function InvoicesTab() {
         </div>
       </div>
 
+      {/* Model A info banner */}
+      <div className="flex items-start gap-3 rounded-xl border border-[#bfdbfe] bg-[#eff6ff] px-4 py-3 text-sm text-[#1e40af]">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <span>
+          <strong>Model A tax invoices</strong> are automatically recorded here when you click{" "}
+          <strong>Save to Accounts</strong> inside the Tax Invoice dialog in Procurement.
+          Use <em>Manual Invoice</em> only for one-off adjustments outside the standard procurement flow.
+        </span>
+      </div>
+
       <div className="flex items-center justify-between">
         <h3 className="text-xl font-semibold">Invoice register</h3>
         <div className="flex gap-2">
           <button className="btn btn-ghost flex items-center gap-1.5"><Download size={14} />Export</button>
-          <button onClick={() => setShowForm(!showForm)} className="btn btn-primary flex items-center gap-1.5"><Plus size={14} />Generate Invoice</button>
+          <button onClick={() => setShowForm(!showForm)} className="btn btn-ghost flex items-center gap-1.5 text-xs border border-[#d8decf]"><Plus size={14} />Manual Invoice</button>
         </div>
       </div>
 
@@ -214,11 +224,23 @@ function InvoicesTab() {
                     <td className="px-5 py-3.5"><StatusBadge status={inv.status} /></td>
                     <td className="px-5 py-3.5">
                       <div className="flex gap-2 whitespace-nowrap">
-                        <button className="text-xs font-semibold text-[#172018] hover:underline inline-flex items-center gap-1"><Eye size={12} />View</button>
                         {inv.status === "Draft" && (
                           <button onClick={() => approveInvoice(inv.id)} className="text-xs font-semibold text-[#15803d] hover:underline inline-flex items-center gap-1"><CheckCircle2 size={12} />Approve</button>
                         )}
-                        <button className="text-xs font-semibold text-[#1d4ed8] hover:underline inline-flex items-center gap-1"><FileText size={12} />PDF</button>
+                        {(inv.status === "Approved" || inv.status === "Sent" || inv.status === "Partial") && (
+                          <button
+                            onClick={() => {
+                              // Switch to Receipts tab with this invoice pre-selected
+                              window.dispatchEvent(new CustomEvent("akshaya:receipt-for-invoice", { detail: { invoiceId: inv.id, partyId: inv.partyId, invoiceNo: inv.invoiceNo } }));
+                            }}
+                            className="text-xs font-semibold text-[#1d4ed8] hover:underline inline-flex items-center gap-1"
+                          >
+                            <Send size={12} />Record payment
+                          </button>
+                        )}
+                        {inv.status === "Paid" && (
+                          <span className="text-xs text-[#15803d] font-semibold inline-flex items-center gap-1"><Check size={12} />Paid in full</span>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -234,24 +256,93 @@ function InvoicesTab() {
 
 // ─── RECEIPTS ─────────────────────────────────────────────────────────────────
 
-function ReceiptsTab() {
-  const [vouchers, setVouchers] = useState<Voucher[]>([]);
-  const [parties, setParties] = useState<Party[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+function ReceiptsTab({ preset, onPresetConsumed }: { preset: { partyId: string; invoiceId: string; invoiceNo?: string } | null; onPresetConsumed: () => void }) {
+  const [vouchers, setVouchers]           = useState<Voucher[]>([]);
+  const [allInvoices, setAllInvoices]     = useState<Invoice[]>([]);
+  const [parties, setParties]             = useState<Party[]>([]);
+  const [loading, setLoading]             = useState(true);
+  const [saving, setSaving]               = useState(false);
+  const [selectedPartyId, setSelectedPartyId] = useState("");
+  const [receiptAmount, setReceiptAmount] = useState(0);
+  const [selectedInvIds, setSelectedInvIds]   = useState<Set<string>>(new Set());
+  const [narration, setNarration]         = useState("");
+  const [narrationEdited, setNarrationEdited] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
       fetch("/api/vouchers?type=Receipt").then((r) => r.json()),
       fetch("/api/parties").then((r) => r.json()),
-    ]).then(([vs, pts]) => {
+      fetch("/api/invoices").then((r) => r.json()),
+    ]).then(([vs, pts, invs]) => {
       setVouchers(Array.isArray(vs) ? vs : []);
       setParties(Array.isArray(pts) ? pts : []);
+      setAllInvoices(Array.isArray(invs) ? invs : []);
     }).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Apply preset from "Record payment" shortcut in Invoices tab
+  useEffect(() => {
+    if (!preset || allInvoices.length === 0) return;
+    setSelectedPartyId(preset.partyId);
+    setSelectedInvIds(new Set([preset.invoiceId]));
+    const inv = allInvoices.find((i) => i.id === preset.invoiceId);
+    if (inv) {
+      setReceiptAmount(inv.amountDue);
+      setNarration(`Receipt against Invoice ${inv.invoiceNo}`);
+      setNarrationEdited(false);
+    }
+    onPresetConsumed();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset, allInvoices]);
+
+  // Auto-update narration when invoice selection changes (unless user has manually edited it)
+  useEffect(() => {
+    if (narrationEdited) return;
+    const selectedInvs = allInvoices.filter(
+      (i) => i.partyId === selectedPartyId && selectedInvIds.has(i.id)
+    );
+    if (selectedInvs.length === 0) { setNarration(""); return; }
+    const nos = selectedInvs.map((i) => i.invoiceNo).join(", ");
+    setNarration(selectedInvs.length === 1
+      ? `Receipt against Invoice ${nos}`
+      : `Receipt against Invoices: ${nos}`
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedInvIds, allInvoices, selectedPartyId]);
+
+  // Open invoices for the selected customer (not Paid / not Cancelled)
+  const openInvoices = allInvoices.filter(
+    (i) => i.partyId === selectedPartyId &&
+      i.status !== "Paid" && i.status !== "Cancelled" && i.amountDue > 0
+  ).sort((a, b) => a.invoiceDate.localeCompare(b.invoiceDate)); // oldest first
+
+  const totalSelected = openInvoices
+    .filter((i) => selectedInvIds.has(i.id))
+    .reduce((s, i) => s + i.amountDue, 0);
+
+  const diff = receiptAmount - totalSelected;
+  const fullyMatched = Math.abs(diff) < 0.01 && selectedInvIds.size > 0;
+  const excess = diff > 0.01;
+  const shortfall = diff < -0.01;
+
+  function toggleInvoice(id: string) {
+    setSelectedInvIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    setSelectedInvIds(new Set(openInvoices.map((i) => i.id)));
+  }
+
+  function clearSelection() {
+    setSelectedInvIds(new Set());
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -265,27 +356,40 @@ function ReceiptsTab() {
       partyId,
       partyName: party?.name ?? "",
       voucherDate: fd.get("voucherDate"),
-      amount: Number(fd.get("amount") ?? 0),
+      amount: receiptAmount,
       paymentMode: fd.get("paymentMode") ?? "NEFT",
       bankRef: fd.get("bankRef"),
       narration: fd.get("narration"),
       status: "Posted",
+      allocatedTo: [...selectedInvIds],
     };
     await fetch("/api/vouchers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     setSaving(false);
     form.reset();
+    setSelectedPartyId("");
+    setReceiptAmount(0);
+    setSelectedInvIds(new Set());
+    setNarration("");
+    setNarrationEdited(false);
     load();
   }
 
   return (
     <div className="grid gap-6">
       <form onSubmit={handleSubmit} className="rounded-xl border border-[#d8decf] bg-white p-6">
-        <h3 className="mb-4 text-xl font-semibold">Post customer receipt</h3>
-        <p className="mb-5 text-sm text-[#60735d]">Recording a receipt posts: Dr. Bank / Cr. Customer Receivable.</p>
+        <h3 className="mb-1 text-xl font-semibold">Post customer receipt</h3>
+        <p className="mb-5 text-sm text-[#60735d]">Posts Dr. Bank / Cr. Customer Receivable and reduces outstanding invoice balances.</p>
+
+        {/* ── Core receipt fields ── */}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <label className="grid gap-1.5 text-sm font-medium">
             Customer *
-            <select name="partyId" required className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#16a34a]">
+            <select
+              name="partyId" required
+              value={selectedPartyId}
+              onChange={(e) => { setSelectedPartyId(e.target.value); setSelectedInvIds(new Set()); setNarration(""); setNarrationEdited(false); }}
+              className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#16a34a]"
+            >
               <option value="">Select party…</option>
               {parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
@@ -296,7 +400,12 @@ function ReceiptsTab() {
           </label>
           <label className="grid gap-1.5 text-sm font-medium">
             Amount received (₹) *
-            <input name="amount" type="number" required placeholder="11529000" className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#16a34a]" />
+            <input
+              name="amount" type="number" required placeholder="11529000"
+              value={receiptAmount || ""}
+              onChange={(e) => setReceiptAmount(Number(e.target.value) || 0)}
+              className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#16a34a]"
+            />
           </label>
           <label className="grid gap-1.5 text-sm font-medium">
             Payment mode
@@ -308,16 +417,106 @@ function ReceiptsTab() {
             UTR / reference no
             <input name="bankRef" type="text" placeholder="RTGS/20260510/0012345" className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#16a34a]" />
           </label>
-          <label className="grid gap-1.5 text-sm font-medium sm:col-span-2 xl:col-span-3">
+          <label className="grid gap-1.5 text-sm font-medium">
             Narration
-            <textarea name="narration" className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#16a34a]" rows={2} placeholder="Receipt against invoice — May 2026 batch" />
+            <input
+              name="narration"
+              type="text"
+              value={narration}
+              onChange={(e) => { setNarration(e.target.value); setNarrationEdited(true); }}
+              placeholder="Receipt against invoice — May 2026 batch"
+              className="rounded-lg border border-[#c8d4c0] px-3.5 py-2.5 font-normal outline-none focus:border-[#16a34a]"
+            />
           </label>
         </div>
+
+        {/* ── Invoice allocation panel ── */}
+        {selectedPartyId && (
+          <div className="mt-5 rounded-lg border border-[#d8decf] bg-[#fafcf8]">
+            <div className="flex items-center justify-between border-b border-[#edf0e8] px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-[#172018]">Allocate to open invoices</p>
+                <p className="text-xs text-[#60735d]">
+                  {openInvoices.length === 0
+                    ? "No outstanding invoices for this customer"
+                    : `${openInvoices.length} outstanding invoice${openInvoices.length !== 1 ? "s" : ""} · tick those this receipt covers`}
+                </p>
+              </div>
+              {openInvoices.length > 0 && (
+                <div className="flex gap-2">
+                  <button type="button" onClick={selectAll} className="text-xs font-semibold text-[#15803d] hover:underline">Select all</button>
+                  <button type="button" onClick={clearSelection} className="text-xs font-semibold text-[#536251] hover:underline">Clear</button>
+                </div>
+              )}
+            </div>
+
+            {openInvoices.length > 0 && (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-[#edf0e8] bg-[#f3f6ef] text-[10px] font-semibold uppercase tracking-wider text-[#60735d]">
+                        <th className="px-4 py-2.5 w-8"></th>
+                        <th className="px-4 py-2.5">Invoice no</th>
+                        <th className="px-4 py-2.5">Date</th>
+                        <th className="px-4 py-2.5">Due date</th>
+                        <th className="px-4 py-2.5 text-right">Invoice value</th>
+                        <th className="px-4 py-2.5 text-right">Already paid</th>
+                        <th className="px-4 py-2.5 text-right font-bold text-[#172018]">Amount due</th>
+                        <th className="px-4 py-2.5 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {openInvoices.map((inv) => {
+                        const checked = selectedInvIds.has(inv.id);
+                        return (
+                          <tr
+                            key={inv.id}
+                            onClick={() => toggleInvoice(inv.id)}
+                            className={`cursor-pointer border-t border-[#edf0e8] transition-colors ${checked ? "bg-[#f0fdf4]" : "hover:bg-[#f6faef]"}`}
+                          >
+                            <td className="px-4 py-2.5 text-center">
+                              <input type="checkbox" readOnly checked={checked} className="h-4 w-4 accent-[#15803d]" />
+                            </td>
+                            <td className="px-4 py-2.5 font-semibold text-[#172018]">{inv.invoiceNo}</td>
+                            <td className="px-4 py-2.5 text-[#536251]">{inv.invoiceDate}</td>
+                            <td className="px-4 py-2.5 text-[#536251]">{inv.dueDate}</td>
+                            <td className="px-4 py-2.5 text-right">{inr(inv.totalValue)}</td>
+                            <td className="px-4 py-2.5 text-right text-[#15803d]">{inr(inv.amountPaid)}</td>
+                            <td className="px-4 py-2.5 text-right font-bold">{inr(inv.amountDue)}</td>
+                            <td className="px-4 py-2.5 text-center"><StatusBadge status={inv.status} /></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Allocation summary bar */}
+                <div className={`flex items-center justify-between px-4 py-3 text-sm font-medium ${fullyMatched ? "bg-[#f0fdf4] text-[#15803d]" : excess ? "bg-[#fff7ed] text-[#c2410c]" : shortfall ? "bg-[#fef2f2] text-[#b91c1c]" : "bg-[#f3f6ef] text-[#536251]"}`}>
+                  <span>
+                    {selectedInvIds.size === 0
+                      ? "No invoices selected — receipt will be posted without allocation"
+                      : fullyMatched
+                      ? `✓ Receipt exactly covers ${selectedInvIds.size} invoice${selectedInvIds.size !== 1 ? "s" : ""} (${inr(totalSelected)})`
+                      : excess
+                      ? `Receipt ${inr(receiptAmount)} — selected ${inr(totalSelected)} — ${inr(diff)} will remain unallocated`
+                      : `Receipt ${inr(receiptAmount)} — selected ${inr(totalSelected)} — shortfall ${inr(Math.abs(diff))}`}
+                  </span>
+                  {selectedInvIds.size > 0 && (
+                    <span className="font-bold">{inr(totalSelected)} selected</span>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         <div className="mt-5 flex gap-3">
           <button type="submit" disabled={saving} className="btn btn-primary flex items-center gap-1.5">
             <Check size={14} />{saving ? "Posting…" : "Post Receipt"}
           </button>
-          <button type="reset" className="btn btn-ghost flex items-center gap-1.5"><RotateCcw size={14} />Reset</button>
+          <button type="reset" onClick={() => { setSelectedPartyId(""); setReceiptAmount(0); setSelectedInvIds(new Set()); }} className="btn btn-ghost flex items-center gap-1.5"><RotateCcw size={14} />Reset</button>
         </div>
       </form>
 
@@ -329,7 +528,7 @@ function ReceiptsTab() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-[#f3f6ef] text-xs font-semibold uppercase tracking-[0.1em] text-[#60735d]">
-                <tr>{["Voucher no", "Date", "Party", "Amount", "Mode", "Bank ref", "Narration", "Status"].map((h) => <th key={h} className="px-5 py-3.5">{h}</th>)}</tr>
+                <tr>{["Voucher no", "Date", "Party", "Amount", "Mode", "Bank ref", "Narration", "Allocated to", "Status"].map((h) => <th key={h} className="px-5 py-3.5">{h}</th>)}</tr>
               </thead>
               <tbody>
                 {vouchers.map((v) => (
@@ -340,7 +539,12 @@ function ReceiptsTab() {
                     <td className="px-5 py-3.5 font-semibold">{inr(v.amount)}</td>
                     <td className="px-5 py-3.5 text-[#536251]">{v.paymentMode}</td>
                     <td className="px-5 py-3.5 font-mono text-xs text-[#536251]">{v.bankRef}</td>
-                    <td className="px-5 py-3.5 text-[#536251] max-w-[220px] truncate">{v.narration}</td>
+                    <td className="px-5 py-3.5 text-[#536251] max-w-[180px] truncate">{v.narration}</td>
+                    <td className="px-5 py-3.5 text-xs text-[#536251]">
+                      {v.allocatedTo.length > 0
+                        ? <span className="font-medium text-[#15803d]">{v.allocatedTo.length} invoice{v.allocatedTo.length !== 1 ? "s" : ""}</span>
+                        : <span className="text-[#9ca3af]">—</span>}
+                    </td>
                     <td className="px-5 py-3.5"><StatusBadge status={v.status} /></td>
                   </tr>
                 ))}
@@ -834,6 +1038,18 @@ function JournalTab() {
 
 export default function AccountingPage() {
   const [tab, setTab] = useState<Tab>("Invoices");
+  const [receiptPreset, setReceiptPreset] = useState<{ partyId: string; invoiceId: string; invoiceNo?: string } | null>(null);
+
+  useEffect(() => {
+    function handler(e: Event) {
+      const { partyId, invoiceId, invoiceNo } = (e as CustomEvent).detail as { partyId: string; invoiceId: string; invoiceNo?: string };
+      setReceiptPreset({ partyId, invoiceId, invoiceNo });
+      setTab("Receipts");
+    }
+    window.addEventListener("akshaya:receipt-for-invoice", handler);
+    return () => window.removeEventListener("akshaya:receipt-for-invoice", handler);
+  }, []);
+
   return (
     <div className="grid gap-5">
       <div className="flex gap-2 overflow-x-auto">
@@ -847,7 +1063,7 @@ export default function AccountingPage() {
         })}
       </div>
       {tab === "Invoices" && <InvoicesTab />}
-      {tab === "Receipts" && <ReceiptsTab />}
+      {tab === "Receipts" && <ReceiptsTab preset={receiptPreset} onPresetConsumed={() => setReceiptPreset(null)} />}
       {tab === "Payments" && <PaymentsTab />}
       {tab === "Trial Balance" && <TrialBalanceTab />}
       {tab === "Journal" && <JournalTab />}
