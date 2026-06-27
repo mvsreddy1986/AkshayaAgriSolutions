@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getLot, listQualityRules, listMaterials, updateLot, createLedgerEntries, createPayout, getInvoice, updateInvoice } from "../../../../../lib/db";
+import { supabase } from "../../../../../lib/supabase/client";
 import { calculateLotSettlement, paramQualityAccount } from "../../../../../lib/settlement/engine";
 import type { LedgerEntry } from "../../../../../lib/types";
 
@@ -24,17 +25,21 @@ function errMsg(e: unknown) { return e instanceof Error ? e.message : JSON.strin
  * ── SUPPLIER SIDE (Model A only) ──────────────────────────────────────────────
  *   Dr 5001  Procurement — Commodity   grossNotional
  *   Cr 4101… Quality Loss per param    c.valueDeduction (offsets customer Dr; nets to zero)
- *   Cr 5101  Market Cess               cessTotal (gate-paid + balance; offsets Dr cessBalance + future gate entry)
+ *   Cr 5101  Market Cess               cessTotal (full; offsets Dr cessBalance + Dr cessPaid gate entry)
  *   Cr 3200  Akshaya Trading Margin    akshayaMarginPerMT × netWeight
  *   Cr 4199  Quality Hold Penalty      holdPenalty (if any)
  *   Cr 2101  Supplier Payable          grossSaleValue − cessTotal − margin − holdPenalty
  *
  *   Proof: grossNotional = qualityDeductions + cessTotal + margin + holdPenalty + supplierPayable  ✓
  *
+ * ── GATE BANK ENTRY (posted separately via /cess-payment) ─────────────────────
+ *   Dr 5101  Market Cess              cessPaid   ← clears Cr cessPaid residual in 5101
+ *   Cr 1100  Bank / Cash              cessPaid   ← records actual gate cash outflow
+ *
  * ── P&L IMPACT ────────────────────────────────────────────────────────────────
  *   3100 Cr = 5001 Dr = grossNotional (commodity trading nets to zero)
  *   41XX Dr + 41XX Cr = 0 (quality deductions pass through to supplier)
- *   5101 Dr cessBalance + 5101 Cr cessTotal → net Cr cessPaid (clears when gate payment posted)
+ *   5101: Dr cessBalance (settlement) + Dr cessPaid (gate entry) = Cr cessTotal → 0 ✓
  *   Net income = Cr 3200 Akshaya Margin only  ✓
  *
  * Model B lots skip the supplier-side block — farmer payment is handled via the
@@ -50,6 +55,27 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       return NextResponse.json(
         { error: `Lot must be Approved before posting settlement (complete quality readings first). Current status: ${lot.status}` },
         { status: 400 },
+      );
+    }
+    if (!lot.invoiceId) {
+      return NextResponse.json(
+        { error: `Tax Invoice to Sarvani must be generated before posting settlement for lot ${lot.documentRef}. Generate the invoice first from the Invoicing tab.` },
+        { status: 400 },
+      );
+    }
+
+    // 1b — Idempotency guard: if ledger entries already exist for this lot's
+    //      settlement ref, a duplicate request raced through. Return 409 so the
+    //      UI can surface the error rather than silently double-posting.
+    const ref = `SETTLE-${lot.documentRef}`;
+    const { count: existingCount } = await supabase
+      .from("ledger_entries")
+      .select("id", { count: "exact", head: true })
+      .eq("source_ref", ref);
+    if ((existingCount ?? 0) > 0) {
+      return NextResponse.json(
+        { error: `Settlement already posted for lot ${lot.documentRef}. Refresh to see the updated status.` },
+        { status: 409 },
       );
     }
 
@@ -77,13 +103,19 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     }
 
     // 4 — Shared values
-    const grossNotional     = r2(lot.netWeight * calc.grossSaleRate);
+    //
+    // Cess flow (Model A) — full audit trail via 5101:
+    //   supplierPayable = grossSaleValue − cessTotal − margin − holdPenalty
+    //     Supplier bears FULL cess; cessPaid portion is reimbursed via a separate gate bank entry (Dr 5101 / Cr 1100).
+    //   customerReceivable = grossSaleValue − cessBalance  (Sarvani deducts only the cess balance at settlement)
+    //   5101 netting: Dr cessBalance (customer) + Dr cessPaid (gate entry) = Cr cessTotal (supplier) → 0 ✓
+    const grossNotional      = r2(lot.netWeight * calc.grossSaleRate);
     const customerReceivable = r2(calc.grossSaleValue - calc.cessBalance);
-    const spMargin          = r2(lot.akshayaMarginPerMT * lot.netWeight);
-    const holdPenalty       = r2(lot.holdPenalty ?? 0);
-    const supplierPayable   = r2(calc.grossSaleValue - calc.cessBalance - spMargin - holdPenalty);
+    const spMargin           = r2(lot.akshayaMarginPerMT * lot.netWeight);
+    const holdPenalty        = r2(lot.holdPenalty ?? 0);
+    const supplierPayable    = r2(calc.grossSaleValue - calc.cessTotal - spMargin - holdPenalty);
     const today             = new Date().toISOString().slice(0, 10);
-    const ref               = `SETTLE-${lot.documentRef}`;
+    // ref already declared above in the idempotency guard — reuse it here.
 
     const entries: Omit<LedgerEntry, "id">[] = [];
 
@@ -103,12 +135,13 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     //
     // Two paths:
     //   A) Lot already has a Tax Invoice (status = "Invoiced"):
-    //      Gross entry was posted when the invoice was saved (Dr 1201 / Cr 3100).
-    //      Post ONLY the Credit Note delta for deductions:
-    //        Dr 3100  Sales — Adjustment   deductionDelta
-    //        Cr 1201  Sarvani Receivable   deductionDelta
+    //      Gross entry was posted when invoice was saved (Dr 1201 grossNotional / Cr 3100 grossNotional).
+    //      Post credit note to bring 1201 down to customerReceivable:
+    //        Dr 41XX  Quality Loss per param    valueDeduction   (mirrors supplier Cr 41XX → nets 0)
+    //        Dr 5101  Market Cess               cessBalance      (mirrors Path B customer-side Dr 5101)
+    //        Cr 1201  Sarvani Receivable        qualityDelta + cessBalance
+    //      Supplier side always posts Cr 5101 cessTotal — so 5101 nets to 0 after gate payment.
     //      Also update the Invoice record: reduce amountDue by deductionDelta.
-    //      Narration references invoice no + challan no for traceability.
     //
     //   B) No invoice yet (status = "Approved"):
     //      Post the original split entries (gross notional to 3100,
@@ -123,15 +156,28 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
         invoiceNo = linkedInvoice.invoiceNo;
       } catch { /* keep fallback */ }
 
-      const deductionDelta = r2(grossNotional - customerReceivable); // quality + cess deducted from AR
-      const cnNarration = `Credit Note | ${invoiceNo} | Challan ${lot.documentRef} | Quality & cess adjustments`;
+      const qualityDelta   = r2(grossNotional - calc.grossSaleValue);  // quality weight deductions
+      const cessBalanceAmt = r2(calc.cessBalance);
+      const deductionDelta = r2(qualityDelta + cessBalanceAmt);         // total credit note amount
+      const cnNarration    = `Credit Note | ${invoiceNo} | Challan ${lot.documentRef} | Quality & cess adjustments`;
 
       if (deductionDelta > 0) {
-        entries.push(mk(
-          "3100", "Sales — Adjustment",
-          deductionDelta, 0,
-          cnNarration,
-        ));
+        for (const c of calc.paramCalcs) {
+          if (c.valueDeduction <= 0 || c.rejectTrigger || c.weightDeductionKg === 0) continue;
+          const qa = paramQualityAccount(c.paramKey);
+          entries.push(mk(
+            qa.code, qa.name,
+            r2(c.valueDeduction), 0,
+            `${c.label} ${typeof c.reading === "number" ? c.reading + "%" : c.reading} — Challan ${lot.documentRef}`,
+          ));
+        }
+        if (cessBalanceAmt > 0) {
+          entries.push(mk(
+            "5101", "Market Cess",
+            cessBalanceAmt, 0,
+            `Market cess balance (customer side) — Challan ${lot.documentRef}`,
+          ));
+        }
         entries.push(mk(
           "1201", "Sarvani Biofuels Receivable",
           0, deductionDelta,
@@ -140,7 +186,6 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
         ));
       }
 
-      // Update Invoice: reduce amountDue by deductionDelta
       if (lot.invoiceId && deductionDelta > 0) {
         try {
           const inv = await getInvoice(lot.invoiceId);
@@ -150,7 +195,9 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
         } catch { /* non-fatal */ }
       }
     } else {
-      // Path B — no invoice yet; post the classic split customer-side entries
+      // Path B — no invoice; post customer-side entries
+      // customerReceivable = grossSaleValue − cessBalance (Sarvani deducts only the remaining cess balance;
+      // cessPaid was already settled at gate and is reimbursed to Akshaya in this settlement implicitly)
       entries.push(mk(
         "1201", "Sarvani Biofuels Receivable",
         customerReceivable, 0,
@@ -205,12 +252,22 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
         ));
       }
 
-      if (calc.cessBalance > 0) {
+      // Cr 5101 cessTotal — full market cess credited to 5101 on supplier side.
+      // Then: Dr 5101 cessPaid / Cr 2101 cessPaid — clears gate-paid portion from 5101 and bundles it into
+      // the supplier payable so the 2101 balance reflects the total single payment due to supplier.
+      // 5101 net: Dr cessBalance (customer) + Dr cessPaid (this entry) = Cr cessTotal → 0 ✓
+      // 2101 total: settlementPayable + cessPaid = grossSaleValue − cessBalance − margin (single bank transfer)
+      if (calc.cessTotal > 0) {
         entries.push(mk(
           "5101", "Market Cess",
-          0, r2(calc.cessBalance),
-          `Market cess | Challan ${lot.documentRef}`,
+          0, r2(calc.cessTotal),
+          `Market cess (full) | Challan ${lot.documentRef}`,
         ));
+      }
+      if (calc.cessPaid > 0) {
+        const reimb = `Gate cess reimbursement | Challan ${lot.documentRef}`;
+        entries.push(mk("5101", "Market Cess",          r2(calc.cessPaid), 0,               reimb, lot.supplierId || null, lot.supplierName || null));
+        entries.push(mk("2101", "Supplier Payable",     0,                 r2(calc.cessPaid), reimb, lot.supplierId || null, lot.supplierName || null));
       }
 
       entries.push(mk(
@@ -255,26 +312,35 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     //              (no Akshaya margin on Model B direct farmer purchases).
     const payeeId   = lot.businessModel === "A" ? (lot.supplierId ?? "") : (lot.farmerId ?? "");
     const payeeName = lot.businessModel === "A" ? (lot.supplierName ?? "") : (lot.farmerName ?? "");
-    const totalDeductions = r2(calc.cessBalance + spMargin + holdPenalty);
+    // Total payable to supplier = settlement portion + gate cess reimbursement (both credited to 2101)
+    const totalSupplierPayable = r2(supplierPayable + calc.cessPaid);
+    const totalDeductions      = r2(calc.cessBalance + spMargin + holdPenalty); // deductions net of cessPaid already reimbursed
 
     if (payeeId) {
-      await createPayout({
-        batchRef:      `PAY-${lot.documentRef}`,
-        farmerId:      payeeId,
-        farmerName:    payeeName,
-        inwardLotId:   lot.id,
-        documentRef:   lot.documentRef,
-        payoutDate:    today,
-        materialName:  lot.materialName,
-        quantity:      calc.netPayableWeight,        // MT
-        rate:          calc.grossSaleRate,            // ₹/MT
-        grossAmount:   calc.grossSaleValue,
-        deductions:    totalDeductions,
-        netAmount:     supplierPayable,
-        paymentMode:   "NEFT",
-        paymentRef:    "",
-        paymentStatus: "Pending",
-      });
+      // Skip if a payout record already exists for this lot (race condition safety net).
+      const { count: payoutExists } = await supabase
+        .from("farmer_payouts")
+        .select("id", { count: "exact", head: true })
+        .eq("inward_lot_id", lot.id);
+      if ((payoutExists ?? 0) === 0) {
+        await createPayout({
+          batchRef:      `PAY-${lot.documentRef}`,
+          farmerId:      payeeId,
+          farmerName:    payeeName,
+          inwardLotId:   lot.id,
+          documentRef:   lot.documentRef,
+          payoutDate:    today,
+          materialName:  lot.materialName,
+          quantity:      calc.netPayableWeight,
+          rate:          calc.grossSaleRate,
+          grossAmount:   calc.grossSaleValue,
+          deductions:    totalDeductions,
+          netAmount:     totalSupplierPayable,
+          paymentMode:   "NEFT",
+          paymentRef:    "",
+          paymentStatus: "Pending",
+        });
+      }
     }
 
     return NextResponse.json({
@@ -282,7 +348,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       entriesPosted: entries.length,
       summary: {
         customerReceivable,
-        supplierPayable: lot.businessModel === "A" ? supplierPayable : null,
+        supplierPayable: lot.businessModel === "A" ? totalSupplierPayable : null,
         marginPosted:    lot.businessModel === "A" ? spMargin : null,
         grossNotional,
         payoutCreated:   !!payeeId,

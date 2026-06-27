@@ -93,7 +93,12 @@ export default function SettlementStatement({ lot, material, party, onClose }: P
           <td class="right neg">− ₹${fmt2(Number(v))}</td>
         </tr>`),
       cessBalance > 0 ? `<tr>
-          <td class="pl">Market cess balance (${material?.cessRate ?? 0}% on ₹${inrFmt(grossNotional)})</td>
+          <td class="pl">
+            Market cess balance (${material?.cessRate ?? 0}%)
+            <div style="font-size:9px;color:#4b7a52;margin-top:2px;">
+              ${material?.cessRate ?? 0}% × ${fmt3(lot.netWeight)} MT × ₹${lot.grossSaleRate.toLocaleString("en-IN")}/MT = <strong>₹${fmt2(cessTotal)}</strong>${lot.cessAmount > 0 ? ` &nbsp;·&nbsp; Gate paid: <strong style="color:#15803d">−₹${fmt2(lot.cessAmount)}</strong> &nbsp;·&nbsp; Balance = <strong style="color:#dc2626">₹${fmt2(cessBalance)}</strong>` : ""}
+            </div>
+          </td>
           <td class="right neg">− ₹${fmt2(cessBalance)}</td>
         </tr>` : "",
       `<tr>
@@ -427,11 +432,20 @@ ${readingRows ? `<div class="section">
                   <span className="font-medium text-[#dc2626]">− {inrFmt(Number(v))}</span>
                 </div>
               ))}
-              {/* Cess balance */}
+              {/* Cess balance — full calculation inline */}
               {cessBalance > 0 && (
-                <div className="flex items-center justify-between px-4 py-1.5 pl-8 text-xs text-[#536251]">
-                  <span>Market cess balance ({material?.cessRate ?? 0}%)</span>
-                  <span className="font-medium text-[#dc2626]">− {inrFmt(cessBalance)}</span>
+                <div className="flex items-start justify-between px-4 py-2 pl-8 text-xs text-[#536251]">
+                  <div className="flex-1 min-w-0 pr-4">
+                    <span>Market cess balance ({material?.cessRate ?? 0}%)</span>
+                    <p className="text-[10px] text-[#7aaa80] mt-0.5 leading-relaxed">
+                      {material?.cessRate ?? 0}% × {fmt3(lot.netWeight)} MT × ₹{lot.grossSaleRate.toLocaleString("en-IN")}/MT
+                      {" = "}<strong className="text-[#374151]">{inrFmt(cessTotal)}</strong>
+                      {lot.cessAmount > 0 && (
+                        <> &nbsp;·&nbsp; Gate paid <strong className="text-[#15803d]">− {inrFmt(lot.cessAmount)}</strong> &nbsp;·&nbsp; Balance = <strong className="text-[#dc2626]">{inrFmt(cessBalance)}</strong></>
+                      )}
+                    </p>
+                  </div>
+                  <span className="font-medium text-[#dc2626] whitespace-nowrap">− {inrFmt(cessBalance)}</span>
                 </div>
               )}
               {/* Akshaya margin */}

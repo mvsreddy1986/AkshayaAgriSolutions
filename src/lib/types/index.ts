@@ -9,7 +9,7 @@ export type BusinessModel = "A" | "B" | "C";
 export type LotStatus = "Draft" | "Mapped" | "QualityHold" | "Approved" | "Settled" | "Invoiced";
 export type InvoiceType = "Sales" | "Purchase" | "DebitNote" | "CreditNote";
 export type InvoiceStatus = "Draft" | "Approved" | "Sent" | "Partial" | "Paid" | "Cancelled";
-export type VoucherType = "Receipt" | "Payment";
+export type VoucherType = "Receipt" | "Payment" | "Expense" | "Drawing";
 export type VoucherStatus = "Draft" | "Posted" | "Cleared" | "Bounced";
 export type PayoutStatus = "Pending" | "Approved" | "Paid";
 export type QualityRuleStatus = "Active" | "Expired" | "Draft";
@@ -180,6 +180,7 @@ export interface InwardLot {
   akshayaMarginPerMT: number;  // ₹/MT Akshaya earns as service margin (default 50 = ₹5/qtl)
   holdPenalty: number;          // ₹ additional deduction agreed when accepting a held lot (0 = none)
   holdPenaltyNote: string | null; // audit note explaining why the penalty was applied
+  cessPaymentPosted?: boolean; // true once Dr 5101 / Cr 1100 gate cess bank entry is posted
 }
 
 export interface FarmerPayout {
@@ -237,7 +238,7 @@ export interface Voucher {
   voucherNo: string;
   voucherType: VoucherType;
   voucherDate: string;
-  partyId: string;
+  partyId: string | null;
   partyName: string;
   amount: number;
   paymentMode: string;

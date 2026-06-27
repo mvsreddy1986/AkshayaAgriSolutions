@@ -101,28 +101,8 @@ export async function POST(req: NextRequest) {
       }
     } catch { /* storage not configured — continue without PDF link */ }
 
-    // Insert import batch row (source_pdf_url column optional — migration may not be run yet)
-    const batchRow: Record<string, unknown> = {
-      id: batchId,
-      batch_ref: batchRef,
-      import_type: "PDF",
-      business_model: "A",
-      source_filename: file.name,
-      report_date: reportDate ?? new Date().toISOString().slice(0, 10),
-      party_name: consignorName ?? "Akshaya Agri",
-      total_rows: parsed.length,
-      mapped_rows: 0,
-      status: "Pending",
-      source_pdf_url: sourcePdfUrl,
-    };
-    const { error: batchErr } = await supabase.from("import_batches").insert(batchRow);
-    if (batchErr?.message?.includes("source_pdf_url")) {
-      // Column not yet added — retry without it
-      delete batchRow.source_pdf_url;
-      await supabase.from("import_batches").insert(batchRow);
-    }
-
-    // Per-product summary maps
+    // Per-product summary maps — Phase 1 (classify) runs BEFORE the batch is persisted.
+    // We only create a batch record if at least one new lot will be imported.
     const parsedGroups   = new Map<string, ProductGroup>();
     const importedGroups = new Map<string, ProductGroup>();
     const duplicateGroups = new Map<string, ProductGroup>();
@@ -208,6 +188,41 @@ export async function POST(req: NextRequest) {
           holdPenaltyNote: null,
         },
       });
+    }
+
+    // ── All duplicates / errors — nothing to import ───────────────────────────
+    // Don't create a batch record. Clean up the orphaned storage PDF if one was uploaded.
+    if (toInsert.length === 0) {
+      if (sourcePdfUrl) {
+        try {
+          await adminSupabase.storage.from("import-pdfs").remove([`${batchId}/${file.name}`]);
+        } catch { /* best-effort cleanup */ }
+      }
+      const parsedSummary   = { total: parsed.length, byProduct: Array.from(parsedGroups.values()) };
+      const duplicateSummary = { total: duplicates.length, byProduct: Array.from(duplicateGroups.values()) };
+      const errorSummary    = { total: errorRows.length, byProduct: Array.from(errorGroups.values()), errors: errorRows };
+      return NextResponse.json({
+        batchRef: null, batchId: null, reportDate, consignorName, sourcePdfUrl: null,
+        created: 0, skipped: duplicates.length,
+        lots: [],
+        parsedSummary, importedSummary: { total: 0, byProduct: [] }, duplicateSummary, errorSummary,
+        parseErrors: errors,
+      });
+    }
+
+    // ── Create batch record — only reached when there are new lots to import ──
+    const batchRow: Record<string, unknown> = {
+      id: batchId, batch_ref: batchRef, import_type: "PDF", business_model: "A",
+      source_filename: file.name,
+      report_date: reportDate ?? new Date().toISOString().slice(0, 10),
+      party_name: consignorName ?? "Akshaya Agri",
+      total_rows: parsed.length, mapped_rows: 0, status: "Pending",
+      source_pdf_url: sourcePdfUrl,
+    };
+    const { error: batchErr } = await supabase.from("import_batches").insert(batchRow);
+    if (batchErr?.message?.includes("source_pdf_url")) {
+      delete batchRow.source_pdf_url;
+      await supabase.from("import_batches").insert(batchRow);
     }
 
     // ── Phase 2: Parallel inserts — all valid lots fire concurrently ────────────

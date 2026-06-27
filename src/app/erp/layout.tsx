@@ -8,8 +8,9 @@ import {
   LayoutDashboard, Database, PackageSearch, Banknote, ShoppingBag,
   Calculator, FileStack, BarChart3, Settings2,
   FlaskConical, Menu, X, TrendingUp, TrendingDown, Minus,
-  Search, LogOut, Wheat, RefreshCw, ChevronRight,
+  Search, LogOut, Wheat, RefreshCw, ChevronRight, Calendar,
 } from "lucide-react";
+import { FYProvider, FY_LIST, useFY } from "./fy-context";
 
 const NAV = [
   { key: "command",     href: "/erp",              label: "Command Center",    short: "Daily control tower",          Icon: LayoutDashboard },
@@ -34,6 +35,11 @@ function calcInrPerTon(cornCents: number, usdInr: number) {
 }
 
 export default function ERPLayout({ children }: { children: React.ReactNode }) {
+  return <FYProvider><ERPLayoutInner>{children}</ERPLayoutInner></FYProvider>;
+}
+
+function ERPLayoutInner({ children }: { children: React.ReactNode }) {
+  const { fy, setFy } = useFY();
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -254,6 +260,24 @@ export default function ERPLayout({ children }: { children: React.ReactNode }) {
                   </div>
                   <RefreshCw size={12} className={market.loading ? "animate-spin" : ""} style={{ color: "var(--ink-4)" }} />
                 </button>
+
+                {/* Global FY picker */}
+                <div className="hidden sm:flex items-center gap-1.5 rounded-lg px-3 py-2" style={{ border: "1.5px solid var(--border)", background: "var(--card)" }}>
+                  <Calendar size={12} style={{ color: "var(--ink-4)" }} />
+                  <select
+                    value={fy.label}
+                    onChange={(e) => { const found = FY_LIST.find(f => f.label === e.target.value); if (found) setFy(found); }}
+                    className="bg-transparent text-xs font-semibold outline-none cursor-pointer"
+                    style={{ color: "var(--ink)" }}
+                    title="Select financial year — applies to all modules"
+                  >
+                    {FY_LIST.map((f) => (
+                      <option key={f.label} value={f.label}>
+                        {f.isCurrent ? `${f.label} ★` : f.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
                 {/* CTA */}
                 <Link

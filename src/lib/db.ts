@@ -275,6 +275,7 @@ function lotFromDb(r: Record<string, unknown>): InwardLot {
     akshayaMarginPerMT: num(r.akshaya_margin_per_mt ?? 50),
     holdPenalty: num(r.hold_penalty ?? 0),
     holdPenaltyNote: nullable(r.hold_penalty_note, str),
+    cessPaymentPosted: r.cess_payment_posted === true,
   };
 }
 
@@ -311,18 +312,22 @@ export function lotToDb(l: Partial<InwardLot>): Record<string, unknown> {
   if (l.akshayaMarginPerMT !== undefined) o.akshaya_margin_per_mt = l.akshayaMarginPerMT;
   if (l.holdPenalty !== undefined) o.hold_penalty = l.holdPenalty;
   if (l.holdPenaltyNote !== undefined) o.hold_penalty_note = l.holdPenaltyNote ?? null;
+  if (l.cessPaymentPosted !== undefined) o.cess_payment_posted = l.cessPaymentPosted;
   return o;
 }
 
-export async function listLots(model?: string): Promise<InwardLot[]> {
+export async function listLots(model?: string, activeOnly = false): Promise<InwardLot[]> {
   let q = supabase.from("inward_lots").select("*").order("lot_date", { ascending: false });
   if (model) q = q.eq("business_model", model);
+  // activeOnly=true excludes Settled/Invoiced lots so the operational queue stays lean.
+  // Financial views (reports, accounting) always call with activeOnly=false to get full history.
+  if (activeOnly) q = q.not("status", "in", '("Settled","Invoiced")');
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []).map(lotFromDb);
 }
 
-const OPTIONAL_LOT_COLS = ["akshaya_margin_per_mt", "hold_penalty", "hold_penalty_note", "override_reason"];
+const OPTIONAL_LOT_COLS = ["akshaya_margin_per_mt", "hold_penalty", "hold_penalty_note", "override_reason", "cess_payment_posted"];
 
 export async function createLot(l: Omit<InwardLot, "id">): Promise<InwardLot> {
   const row = lotToDb({ ...l, id: `lot-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` });
@@ -347,13 +352,39 @@ export async function getLot(id: string): Promise<InwardLot> {
 }
 
 export async function deleteLot(id: string): Promise<void> {
-  // Remove settlement ledger entries for this lot before deleting the lot itself.
-  // source_id is plain TEXT (no FK), so we clean up manually.
+  // 1 — Remove this lot from any invoice's linked_lot_ids array.
+  //     If the invoice becomes empty (no lots left), cancel it.
+  const { data: linkedInvoices } = await supabase
+    .from("invoices")
+    .select("id, linked_lot_ids")
+    .contains("linked_lot_ids", [id]);
+
+  if (linkedInvoices && linkedInvoices.length > 0) {
+    for (const inv of linkedInvoices) {
+      const remaining = ((inv.linked_lot_ids ?? []) as string[]).filter((lid) => lid !== id);
+      if (remaining.length === 0) {
+        await supabase.from("invoices").update({ status: "Cancelled", linked_lot_ids: [] }).eq("id", inv.id);
+      } else {
+        await supabase.from("invoices").update({ linked_lot_ids: remaining }).eq("id", inv.id);
+      }
+    }
+  }
+
+  // 2 — Delete payout records for this lot.
+  const { error: payoutErr } = await supabase
+    .from("farmer_payouts")
+    .delete()
+    .eq("inward_lot_id", id);
+  if (payoutErr) throw payoutErr;
+
+  // 3 — Remove ledger entries (source_id is plain TEXT, no FK constraint — manual cleanup).
   const { error: leErr } = await supabase
     .from("ledger_entries")
     .delete()
     .eq("source_id", id);
   if (leErr) throw leErr;
+
+  // 4 — Delete the lot itself.
   const { error } = await supabase.from("inward_lots").delete().eq("id", id);
   if (error) throw error;
 }
@@ -592,10 +623,17 @@ function ledgerFromDb(r: Record<string, unknown>): LedgerEntry {
   };
 }
 
-export async function listLedger(partyId?: string, accountCode?: string): Promise<LedgerEntry[]> {
+export async function listLedger(
+  partyId?: string,
+  accountCode?: string,
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<LedgerEntry[]> {
   let q = supabase.from("ledger_entries").select("*").order("entry_date", { ascending: false });
   if (partyId) q = q.eq("party_id", partyId);
   if (accountCode) q = q.eq("account_code", accountCode);
+  if (dateFrom) q = q.gte("entry_date", dateFrom);
+  if (dateTo) q = q.lte("entry_date", dateTo);
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []).map(ledgerFromDb);

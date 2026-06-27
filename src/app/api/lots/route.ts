@@ -5,8 +5,9 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    const model = req.nextUrl.searchParams.get("model") ?? undefined;
-    return NextResponse.json(await listLots(model));
+    const model      = req.nextUrl.searchParams.get("model") ?? undefined;
+    const activeOnly = req.nextUrl.searchParams.get("active") === "true";
+    return NextResponse.json(await listLots(model, activeOnly));
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

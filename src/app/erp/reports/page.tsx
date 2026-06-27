@@ -19,9 +19,9 @@ import type { InwardLot, LedgerEntry, Invoice, Material, Party, LotStatus } from
 interface Voucher {
   id: string;
   voucherNo: string;
-  voucherType: "Receipt" | "Payment";
+  voucherType: "Receipt" | "Payment" | "Expense" | "Drawing";
   voucherDate: string;
-  partyId: string;
+  partyId: string | null;
   partyName: string;
   amount: number;
   paymentMode: string;
@@ -901,18 +901,16 @@ function FinancialsTab({
         .filter((e) => e.accountCode === code)
         .reduce((s, e) => s + e.debit - e.credit, 0);
     }
-    const qualityPassthrough =
-      netCr("4101") + netCr("4102") + netCr("4199");
+    const qualityPassthrough = netCr("4101") + netCr("4102") + netCr("4199");
+    const opExp = ["5201","5202","5203","5204","5205","5206","5207","5208"]
+      .reduce((s, c) => s + netDr(c), 0);
     return [
       { code: "3100", label: "Revenue", value: netCr("3100") },
       { code: "5001", label: "Procurement Cost", value: -netDr("5001") },
-      {
-        code: "4xxx",
-        label: "Quality Pass-through",
-        value: qualityPassthrough,
-      },
+      { code: "4xxx", label: "Quality Pass-through", value: qualityPassthrough },
       { code: "5101", label: "Cess Pass-through", value: -netDr("5101") },
-      { code: "3200", label: "Margin", value: netCr("3200") },
+      { code: "3200", label: "Service Margin", value: netCr("3200") },
+      ...(opExp > 0 ? [{ code: "52xx", label: "Operating Expenses", value: -opExp }] : []),
     ];
   }, [periodLedger]);
 
@@ -1118,18 +1116,17 @@ function FinancialsTab({
                   </td>
                 </tr>
               ))}
-              <tr className="border-t-2 border-[#172018] bg-[#f8faf5]">
-                <td className="px-5 py-3.5 font-semibold">Net Profit</td>
-                <td
-                  className={`px-5 py-3.5 text-right font-bold text-xl ${
-                    plRows.find((r) => r.code === "3200")?.value ?? 0 >= 0
-                      ? "text-[#15803d]"
-                      : "text-[#dc2626]"
-                  }`}
-                >
-                  {inr(plRows.find((r) => r.code === "3200")?.value ?? 0)}
-                </td>
-              </tr>
+              {(() => {
+                const netProfit = plRows.reduce((s, r) => s + r.value, 0);
+                return (
+                  <tr className="border-t-2 border-[#172018] bg-[#f8faf5]">
+                    <td className="px-5 py-3.5 font-semibold">Net Profit</td>
+                    <td className={`px-5 py-3.5 text-right font-bold text-xl ${netProfit >= 0 ? "text-[#15803d]" : "text-[#dc2626]"}`}>
+                      {inr(netProfit)}
+                    </td>
+                  </tr>
+                );
+              })()}
             </tbody>
           </table>
         </div>

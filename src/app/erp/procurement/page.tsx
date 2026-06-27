@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import type { LotStatus, InwardLot, FarmerPayout, QualityRule, Material, Party, RateMaster } from "../../../lib/types";
 import SettlementPreview from "../../../components/SettlementPreview";
 import { calculateLotSettlement } from "../../../lib/settlement/engine";
@@ -12,7 +13,8 @@ import {
   Plus, Upload, Bug, Trash2, FileText, Printer, Download,
   Pencil, CheckCircle2, ShieldCheck, FlaskConical, Link2,
   Eye, FileSearch, X, Check, ArrowRight, RefreshCw as Refresh,
-  Search, SlidersHorizontal,
+  Search, SlidersHorizontal, Archive, CreditCard, Clock,
+  ChevronRight, AlertCircle, TrendingUp, Banknote,
 } from "lucide-react";
 
 const TABS = ["Model A", "Model B", "Weighment", "Settlements"] as const;
@@ -336,10 +338,13 @@ function QualityEditDialog({
       if (val !== null && String(val).trim() !== "") qualityReadings[pr.paramKey] = Number(val);
     }
 
-    // Model A: cess is entered as actual amount from Sarvani; margin rate is editable
+    // Model A: cess is entered as actual amount paid at gate; margin rate is editable
     const isModelA = lot.businessModel === "A";
-    const manualCess = isModelA ? Number(fd.get("cessAmount") ?? lot.cessAmount) : null;
-    const manualMargin = isModelA ? Number(fd.get("akshayaMarginPerMT") ?? lot.akshayaMarginPerMT) : null;
+    const rnd2 = (n: number) => Math.round(n * 100) / 100;
+    const rawCess   = String(fd.get("cessAmount") ?? "").trim();
+    const rawMargin = String(fd.get("akshayaMarginPerMT") ?? "").trim();
+    const manualCess   = isModelA ? (rawCess   !== "" ? rnd2(Number(rawCess))   : rnd2(lot.cessAmount)) : null;
+    const manualMargin = isModelA ? (rawMargin !== "" ? rnd2(Number(rawMargin)) : lot.akshayaMarginPerMT) : null;
 
     let patch: Record<string, unknown> = { qualityReadings, qualityRuleId: rule.id };
     if (isModelA && manualMargin !== null) patch.akshayaMarginPerMT = manualMargin;
@@ -354,12 +359,13 @@ function QualityEditDialog({
         // For Model A: use manually entered cess; for others: use engine calculation
         cessAmount: isModelA && manualCess !== null ? manualCess : calc.cessAmount,
         paramDeductions: Object.fromEntries(calc.paramCalcs.map((c) => [c.paramKey, c.valueDeduction])),
-        // If readings now clear the hold, revert to Mapped so the lot can be approved
+        // Advance to Approved when readings are clean; hold if reject trigger fires.
+        // Never downgrade a lot that is already Settled or Invoiced.
         status: calc.hasRejectTrigger
           ? "QualityHold"
-          : lot.status === "QualityHold"
-            ? "Mapped"
-            : lot.status,
+          : lot.status === "Settled" || lot.status === "Invoiced"
+            ? lot.status
+            : "Approved",
       };
     }
 
@@ -401,55 +407,64 @@ function QualityEditDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-        <h3 className="text-lg font-semibold">Edit quality readings</h3>
-        <p className="mt-1 mb-5 text-sm text-[#60735d]">
-          {lot.documentRef} · {lot.materialName} · {rule.id}
-        </p>
-        <form onSubmit={handleSubmit} className="grid gap-3">
-          {rule.paramRules.map((pr) => (
-            <div key={pr.paramKey} className="grid gap-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wide text-[#60735d]">
-                {pr.label ?? pr.paramKey}
-                {pr.baseValue !== undefined && (
-                  <span className="ml-1 font-normal normal-case text-[#9aad9c]">base {pr.baseValue}</span>
-                )}
-                {pr.rejectThreshold !== undefined && (
-                  <span className="ml-1 font-normal normal-case text-[#dc2626]">reject &gt;{pr.rejectThreshold}</span>
-                )}
-              </label>
-              <input
-                name={`qr_${pr.paramKey}`}
-                type="number" step="0.01"
-                defaultValue={lot.qualityReadings[pr.paramKey] ?? ""}
-                className={IC}
-                placeholder="Enter value"
-              />
-            </div>
-          ))}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl flex flex-col max-h-[92vh]">
+        {/* Fixed header */}
+        <div className="px-6 pt-5 pb-3 shrink-0">
+          <h3 className="text-lg font-semibold">Edit quality readings</h3>
+          <p className="mt-0.5 text-sm text-[#60735d]">
+            {lot.documentRef} · {lot.materialName} · {rule.id}
+          </p>
+        </div>
 
-          {/* Model A: manual cess entry + editable margin */}
-          {lot.businessModel === "A" && (
-            <div className="mt-2 grid gap-3 border-t border-[#edf0e8] pt-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-[#536251]">Model A settlement adjustments</p>
-              <div className="grid gap-1.5">
+        {/* Scrollable body */}
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="overflow-y-auto flex-1 px-6 pb-2 grid gap-3 content-start">
+            {rule.paramRules.map((pr) => (
+              <div key={pr.paramKey} className="grid gap-1.5">
                 <label className="text-xs font-semibold uppercase tracking-wide text-[#60735d]">
-                  Cess paid (₹) <span className="font-normal normal-case text-[#9aad9c]">actual amount deducted by Sarvani</span>
+                  {pr.label ?? pr.paramKey}
+                  {pr.baseValue !== undefined && (
+                    <span className="ml-1 font-normal normal-case text-[#9aad9c]">base {pr.baseValue}</span>
+                  )}
+                  {pr.rejectThreshold !== undefined && (
+                    <span className="ml-1 font-normal normal-case text-[#dc2626]">reject &gt;{pr.rejectThreshold}</span>
+                  )}
                 </label>
-                <input name="cessAmount" type="number" step="0.01" min="0" defaultValue={lot.cessAmount} className={IC} placeholder="0.00" />
+                <input
+                  name={`qr_${pr.paramKey}`}
+                  type="number" step="0.01"
+                  defaultValue={lot.qualityReadings[pr.paramKey] ?? ""}
+                  className={IC}
+                  placeholder="Enter value"
+                />
               </div>
-              <div className="grid gap-1.5">
-                <label className="text-xs font-semibold uppercase tracking-wide text-[#60735d]">
-                  Akshaya margin (₹/MT) <span className="font-normal normal-case text-[#9aad9c]">₹5/qtl = ₹50/MT</span>
-                </label>
-                <input name="akshayaMarginPerMT" type="number" step="1" min="0" defaultValue={lot.akshayaMarginPerMT} className={IC} />
-              </div>
-            </div>
-          )}
+            ))}
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <div className="flex gap-3 pt-2">
+            {/* Model A: manual cess entry + editable margin */}
+            {lot.businessModel === "A" && (
+              <div className="mt-1 grid gap-3 border-t border-[#edf0e8] pt-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#536251]">Model A settlement adjustments</p>
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-[#60735d]">
+                    Cess paid (₹) <span className="font-normal normal-case text-[#9aad9c]">actual amount deducted by Sarvani</span>
+                  </label>
+                  <input name="cessAmount" type="number" step="0.01" min="0" defaultValue={lot.cessAmount} className={IC} placeholder="0.00" />
+                </div>
+                <div className="grid gap-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-[#60735d]">
+                    Akshaya margin (₹/MT) <span className="font-normal normal-case text-[#9aad9c]">₹5/qtl = ₹50/MT</span>
+                  </label>
+                  <input name="akshayaMarginPerMT" type="number" step="1" min="0" defaultValue={lot.akshayaMarginPerMT} className={IC} />
+                </div>
+              </div>
+            )}
+
+            {error && <p className="text-sm text-red-600">{error}</p>}
+          </div>
+
+          {/* Fixed footer */}
+          <div className="px-6 py-4 border-t border-[#edf0e8] shrink-0 flex gap-3">
             <button type="submit" disabled={saving} className="btn btn-primary flex flex-1 items-center justify-center gap-1.5 disabled:opacity-50">
               <Check size={14} />{saving ? "Saving…" : "Save & recalculate"}
             </button>
@@ -776,11 +791,15 @@ function ModelATab() {
   const [selectedLotIds, setSelectedLotIds] = useState<Set<string>>(new Set());
   const [showTaxInvoice, setShowTaxInvoice] = useState(false);
   const [stmtLot, setStmtLot] = useState<InwardLot | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
+  // Load active lots by default; when showArchived is true, fetch full history.
+  // Adding showArchived as a dependency means toggling it automatically re-fires load().
   const load = useCallback(() => {
     setLoading(true);
+    const lotsUrl = showArchived ? "/api/lots?model=A" : "/api/lots?model=A&active=true";
     Promise.all([
-      fetch("/api/lots?model=A", { cache: "no-store" }).then((r) => r.json()),
+      fetch(lotsUrl, { cache: "no-store" }).then((r) => r.json()),
       fetch("/api/import-batches?model=A", { cache: "no-store" }).then((r) => r.json()),
       fetch("/api/materials", { cache: "no-store" }).then((r) => r.json()),
       fetch("/api/parties", { cache: "no-store" }).then((r) => r.json()),
@@ -794,7 +813,7 @@ function ModelATab() {
       setQualityRules(Array.isArray(qrs) ? qrs : []);
       setRates(Array.isArray(rts) ? rts : []);
     }).finally(() => setLoading(false));
-  }, []);
+  }, [showArchived]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -932,9 +951,12 @@ function ModelATab() {
   const totalMarginEarned = lots.reduce((s, l) => s + l.akshayaMarginPerMT * l.netWeight, 0);
   const avgRatePerMT = totalNetMT > 0 ? totalCustomerInvoice / totalNetMT : 0;
 
-  // Filtered lot queue (batch filter + search params)
+  const archivedCount = lots.filter(l => l.status === "Settled" || l.status === "Invoiced").length;
+
+  // Filtered lot queue — archived (Settled/Invoiced) lots are hidden by default.
   const filteredLots = useMemo(() => {
     let result = filterBatchId ? lots.filter(l => l.importBatchId === filterBatchId) : lots;
+    if (!showArchived) result = result.filter(l => l.status !== "Settled" && l.status !== "Invoiced");
     if (searchText.trim()) {
       const s = searchText.trim().toLowerCase();
       result = result.filter(l =>
@@ -947,7 +969,7 @@ function ModelATab() {
     if (searchStatus) result = result.filter(l => l.status === searchStatus);
     if (searchMaterialId) result = result.filter(l => l.materialId === searchMaterialId);
     return result;
-  }, [lots, filterBatchId, searchText, searchStatus, searchMaterialId]);
+  }, [lots, filterBatchId, searchText, searchStatus, searchMaterialId, showArchived]);
 
   return (
     <div className="grid min-w-0 gap-6">
@@ -978,7 +1000,7 @@ function ModelATab() {
         <TaxInvoiceDialog
           lots={lots.filter((l) => selectedLotIds.has(l.id))}
           materials={materials}
-          onClose={() => setShowTaxInvoice(false)}
+          onClose={() => { setShowTaxInvoice(false); load(); }}
         />
       )}
       {stmtLot && (
@@ -1011,75 +1033,72 @@ function ModelATab() {
       )}
 
       {/* PDF Import panel */}
-      <div className="rounded-xl border border-dashed border-[#aebba8] bg-white p-6">
-        <h3 className="text-xl font-semibold">Upload Sarvani weighbridge PDF</h3>
-        <p className="mt-1 text-sm leading-6 text-[#60735d]">
-          System extracts challan no, truck, date, gross/tare/net weights from the PDF and creates Draft lots automatically. Each lot costs ₹50/MT Akshaya margin by default.
-        </p>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <div>
-            <input
-              type="file" accept=".pdf" id="pdf-upload"
-              onChange={(e) => { setPdfFile(e.target.files?.[0] ?? null); setUploadResult(null); setUploadError(null); }}
-              className="hidden"
-            />
-            <label htmlFor="pdf-upload" className="cursor-pointer rounded-md border border-[#c8d4c0] bg-[#f6faef] px-4 py-2.5 text-sm font-semibold hover:bg-[#eef3e8]">
-              {pdfFile ? pdfFile.name : "Choose PDF…"}
-            </label>
+      <div className="rounded-xl border border-dashed border-[#aebba8] bg-white px-5 py-3.5">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="mr-1">
+            <p className="text-sm font-semibold text-[#172018]">Upload Sarvani weighbridge PDF</p>
+            <p className="text-xs text-[#8fa888]">Extracts challans, weights &amp; creates Draft lots automatically.</p>
           </div>
-          <button
-            onClick={handlePdfUpload}
-            disabled={!pdfFile || uploading}
-            className="btn btn-primary flex items-center gap-1.5 disabled:opacity-50"
-          >
-            <Upload size={14} />{uploading ? "Importing…" : "Parse & import lots"}
-          </button>
-          <button
-            onClick={async () => {
-              if (!pdfFile) return;
-              const fd = new FormData(); fd.append("pdf", pdfFile);
-              const res = await fetch("/api/lots/pdf-debug", { method: "POST", body: fd });
-              const d = await res.json();
-              console.log("=== PDF RAW TEXT ===\n", d.raw);
-              console.log("=== PDF LINES ===\n", d.lines?.join("\n"));
-              alert("PDF text dumped to browser console (F12 → Console)");
-            }}
-            disabled={!pdfFile}
-            className="btn btn-ghost flex items-center gap-1.5 text-xs disabled:opacity-50"
-          >
-            <Bug size={14} />Debug PDF
-          </button>
-          <button
-            onClick={async () => {
-              if (!window.confirm("Delete ALL lots and import batches? This cannot be undone.")) return;
-              const res = await fetch("/api/procurement/clear", { method: "DELETE" });
-              const d = await res.json();
-              if (!res.ok) { alert("Error: " + d.error); return; }
-              setUploadResult(null); setUploadError(null); setPdfFile(null);
-              load();
-            }}
-            className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-800 hover:underline"
-          >
-            <Trash2 size={12} />Erase all data
-          </button>
+          <div className="flex flex-wrap items-center gap-2 ml-auto">
+            <div>
+              <input
+                type="file" accept=".pdf" id="pdf-upload"
+                onChange={(e) => { setPdfFile(e.target.files?.[0] ?? null); setUploadResult(null); setUploadError(null); }}
+                className="hidden"
+              />
+              <label htmlFor="pdf-upload" className="cursor-pointer rounded-md border border-[#c8d4c0] bg-[#f6faef] px-3.5 py-2 text-xs font-semibold hover:bg-[#eef3e8]">
+                {pdfFile ? <span className="max-w-36 truncate inline-block align-bottom">{pdfFile.name}</span> : "Choose PDF…"}
+              </label>
+            </div>
+            <button
+              onClick={handlePdfUpload}
+              disabled={!pdfFile || uploading}
+              className="btn btn-primary flex items-center gap-1.5 py-2 text-xs disabled:opacity-50"
+            >
+              <Upload size={13} />{uploading ? "Importing…" : "Parse & import"}
+            </button>
+            <button
+              onClick={async () => {
+                if (!pdfFile) return;
+                const fd = new FormData(); fd.append("pdf", pdfFile);
+                const res = await fetch("/api/lots/pdf-debug", { method: "POST", body: fd });
+                const d = await res.json();
+                console.log("=== PDF RAW TEXT ===\n", d.raw);
+                console.log("=== PDF LINES ===\n", d.lines?.join("\n"));
+                alert("PDF text dumped to browser console (F12 → Console)");
+              }}
+              disabled={!pdfFile}
+              className="btn btn-ghost flex items-center gap-1.5 py-2 text-xs disabled:opacity-50"
+            >
+              <Bug size={13} />Debug
+            </button>
+            <button
+              onClick={async () => {
+                if (!window.confirm("Delete ALL lots and import batches? This cannot be undone.")) return;
+                const res = await fetch("/api/procurement/clear", { method: "DELETE" });
+                const d = await res.json();
+                if (!res.ok) { alert("Error: " + d.error); return; }
+                setUploadResult(null); setUploadError(null); setPdfFile(null);
+                load();
+              }}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-red-500 hover:text-red-700 hover:underline"
+            >
+              <Trash2 size={12} />Erase all
+            </button>
+          </div>
         </div>
 
-        {/* PDF preview — shown as soon as a file is selected, persists after import */}
+        {/* PDF preview — collapsible, reduced height */}
         {pdfPreviewUrl && (
-          <div className="mt-4 overflow-hidden rounded-xl border border-[#c8d4c0]">
-            <div className="flex items-center justify-between bg-[#f6faef] px-4 py-2 text-xs text-[#536251]">
-              <span className="font-semibold">{pdfFile?.name}</span>
-              <button
-                onClick={() => { setPdfFile(null); }}
-                className="text-[#dc2626] hover:underline"
-              >
-                Clear
-              </button>
+          <div className="mt-3 overflow-hidden rounded-lg border border-[#c8d4c0]">
+            <div className="flex items-center justify-between bg-[#f6faef] px-3 py-1.5 text-xs text-[#536251]">
+              <span className="font-medium truncate max-w-xs">{pdfFile?.name}</span>
+              <button onClick={() => { setPdfFile(null); }} className="ml-3 shrink-0 text-[#dc2626] hover:underline">Clear</button>
             </div>
             <iframe
               src={pdfPreviewUrl}
               className="w-full"
-              style={{ height: 520 }}
+              style={{ height: 320 }}
               title="PDF preview"
             />
           </div>
@@ -1087,7 +1106,7 @@ function ModelATab() {
 
         {uploadResult && <UploadVerificationPanel result={uploadResult} onViewInvoice={() => setShowInvoice(true)} />}
         {uploadError && (
-          <div className="mt-4 rounded-lg bg-red-50 p-4 text-sm text-red-700">{uploadError}</div>
+          <div className="mt-3 rounded-lg bg-red-50 px-4 py-3 text-xs text-red-700">{uploadError}</div>
         )}
 
         {showInvoice && uploadResult && (
@@ -1149,48 +1168,86 @@ function ModelATab() {
 
       {/* Import batch history */}
       <div className="overflow-hidden rounded-xl border border-[#d8decf] bg-white">
-        <div className="border-b border-[#edf0e8] px-5 py-4">
-          <h3 className="text-lg font-semibold">Import batch history</h3>
+        <div className="flex items-center justify-between border-b border-[#edf0e8] px-5 py-4">
+          <div>
+            <h3 className="text-lg font-semibold">Import batch history</h3>
+            <p className="mt-0.5 text-xs text-[#60735d]">
+              {batches.length} batch{batches.length !== 1 ? "es" : ""} · {batches.reduce((s, b) => s + b.totalRows, 0)} total rows imported
+            </p>
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-[#f3f6ef] text-xs font-semibold uppercase tracking-widest text-[#60735d]">
-              <tr>{["Batch ref", "File", "Report date", "Rows", "Mapped", "Status", "Actions"].map((h) => <th key={h} className="px-5 py-3.5">{h}</th>)}</tr>
-            </thead>
-            <tbody>
-              {batches.map((b) => (
-                <tr key={b.id} className="border-t border-[#edf0e8] hover:bg-[#fafcf8]">
-                  <td className="px-5 py-3.5 font-semibold">{b.batchRef}</td>
-                  <td className="px-5 py-3.5 max-w-50 truncate text-[#536251]">{b.sourceFilename}</td>
-                  <td className="px-5 py-3.5 text-[#536251]">{b.reportDate}</td>
-                  <td className="px-5 py-3.5">{b.totalRows}</td>
-                  <td className="px-5 py-3.5">
-                    <span className={b.mappedRows === b.totalRows ? "font-bold text-[#15803d]" : "font-bold text-[#d97706]"}>
-                      {b.mappedRows}/{b.totalRows}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3.5"><StatusBadge status={b.status} /></td>
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => setFilterBatchId((prev) => prev === b.id ? null : b.id)}
-                        className={`inline-flex items-center gap-1 text-xs font-semibold hover:underline ${filterBatchId === b.id ? "text-[#dc2626]" : "text-[#1d4ed8]"}`}
-                      >
-                        {filterBatchId === b.id ? <><X size={12} />Clear filter</> : <><Eye size={12} />View lots</>}
-                      </button>
-                      {b.sourcePdfUrl && (
-                        <a href={b.sourcePdfUrl} target="_blank" rel="noopener noreferrer" title="Open source PDF"
-                          className="flex h-7 w-7 items-center justify-center rounded-md border border-[#c8d4c0] bg-white text-[#536251] hover:bg-[#f0f4ec] hover:text-[#172018]">
-                          <FileText size={13} />
-                        </a>
-                      )}
+
+        {batches.length === 0 ? (
+          <p className="py-10 text-center text-sm text-[#60735d]">No import batches yet. Upload a PDF above to get started.</p>
+        ) : (
+          <div className="divide-y divide-[#edf0e8]">
+            {batches.map((b) => {
+              // Derive live from lots state — b.mappedRows is only set at import time and never updated.
+              const mappedRows   = lots.filter((l) => l.importBatchId === b.id && l.status !== "Draft").length;
+              const settledRows  = lots.filter((l) => l.importBatchId === b.id && (l.status === "Settled" || l.status === "Invoiced")).length;
+              const isCompleted  = settledRows === b.totalRows && b.totalRows > 0;
+              const pct          = b.totalRows > 0 ? Math.round((mappedRows / b.totalRows) * 100) : 0;
+              const allMapped    = mappedRows === b.totalRows && b.totalRows > 0;
+              const partial      = !allMapped && mappedRows > 0;
+              const isActive     = filterBatchId === b.id;
+              return (
+                <div
+                  key={b.id}
+                  className={`flex items-center gap-3 px-5 py-2.5 transition-colors ${isActive ? "bg-[#f0fdf4]" : isCompleted ? "bg-[#fafcf8] opacity-70 hover:opacity-100" : "hover:bg-[#fafcf8]"}`}
+                >
+                  {/* Left: batch identity + progress */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-mono text-xs font-bold text-[#172018]">{b.batchRef}</span>
+                      {isCompleted
+                        ? <span className="inline-flex items-center gap-1 rounded-full bg-[#f0fdf4] px-2 py-0.5 text-[10px] font-semibold text-[#15803d]"><CheckCircle2 size={10} />Completed</span>
+                        : <StatusBadge status={b.status} />
+                      }
+                      <span className="text-xs text-[#aab8a5]">· {b.reportDate}</span>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-[#e8ede4]">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${allMapped ? "bg-[#15803d]" : partial ? "bg-[#2563eb]" : "bg-[#d97706]"}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className={`text-xs font-semibold ${allMapped ? "text-[#15803d]" : partial ? "text-[#2563eb]" : "text-[#d97706]"}`}>
+                        {mappedRows}/{b.totalRows} mapped
+                      </span>
+                      <span className="text-xs text-[#8fa888] truncate max-w-xs">{b.sourceFilename}</span>
+                    </div>
+                  </div>
+
+                  {/* Right: actions */}
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {b.sourcePdfUrl && (
+                      <a
+                        href={b.sourcePdfUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open source PDF"
+                        className="flex h-7 w-7 items-center justify-center rounded-md border border-[#c8d4c0] bg-white text-[#536251] hover:bg-[#f0f4ec] hover:text-[#172018]"
+                      >
+                        <FileText size={13} />
+                      </a>
+                    )}
+                    <button
+                      onClick={() => setFilterBatchId((prev) => prev === b.id ? null : b.id)}
+                      className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                        isActive
+                          ? "bg-[#fee2e2] text-[#dc2626] hover:bg-[#fecaca]"
+                          : "bg-[#f0f4ec] text-[#172018] hover:bg-[#e4ebe0]"
+                      }`}
+                    >
+                      {isActive ? <><X size={11} />Clear</> : <><Eye size={11} />View lots</>}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Inward lot queue */}
@@ -1198,15 +1255,27 @@ function ModelATab() {
         <div className="flex items-center justify-between border-b border-[#edf0e8] px-5 py-4">
           <div>
             <h3 className="text-lg font-semibold">Model A inward lot queue</h3>
-            {filterBatchId && (
-              <p className="mt-0.5 text-xs text-amber-700 font-semibold">
-                Showing {filteredLots.length} lot{filteredLots.length !== 1 ? "s" : ""} from batch <strong>{batches.find((b) => b.id === filterBatchId)?.batchRef ?? filterBatchId}</strong>
-                {" "}·{" "}
-                <button onClick={() => setFilterBatchId(null)} className="text-[#dc2626] hover:underline">show all</button>
-              </p>
-            )}
+            <p className="mt-0.5 text-xs text-[#60735d]">
+              {filteredLots.length} active lot{filteredLots.length !== 1 ? "s" : ""}
+              {!showArchived && archivedCount > 0 && (
+                <> · <button onClick={() => setShowArchived(true)} className="font-semibold text-[#536251] hover:text-[#172018] hover:underline">{archivedCount} archived (settled/invoiced)</button></>
+              )}
+              {filterBatchId && (
+                <> · Filtered to batch <strong>{batches.find((b) => b.id === filterBatchId)?.batchRef ?? filterBatchId}</strong> · <button onClick={() => setFilterBatchId(null)} className="text-[#dc2626] hover:underline">clear</button></>
+              )}
+            </p>
           </div>
           <div className="flex gap-2">
+            {archivedCount > 0 && (
+              <button
+                onClick={() => setShowArchived(v => !v)}
+                className={`btn btn-ghost flex items-center gap-1.5 text-xs ${showArchived ? "bg-amber-50 text-amber-700 border-amber-200" : ""}`}
+                title={showArchived ? "Hide settled/invoiced lots" : "Show settled/invoiced lots"}
+              >
+                <Archive size={13} />
+                {showArchived ? "Hide archived" : `Archived (${archivedCount})`}
+              </button>
+            )}
             {selectedLotIds.size > 0 && (() => {
               const selectedLots = lots.filter((l) => selectedLotIds.has(l.id));
               return (
@@ -1905,9 +1974,13 @@ function WeighmentTab() {
 // ─── SETTLEMENTS ─────────────────────────────────────────────────────────────
 
 function SettlementsTab() {
-  const [payouts, setPayouts] = useState<FarmerPayout[]>([]);
-  const [lots, setLots] = useState<InwardLot[]>([]);
-  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const [payouts, setPayouts]   = useState<FarmerPayout[]>([]);
+  const [lots, setLots]         = useState<InwardLot[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [approving, setApproving] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"All" | "Pending" | "Approved" | "Paid">("All");
+  const [search, setSearch]     = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -1923,80 +1996,268 @@ function SettlementsTab() {
   useEffect(() => { load(); }, [load]);
 
   async function approvePayout(id: string) {
+    setApproving(id);
     await fetch("/api/payouts", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, paymentStatus: "Approved" }),
     });
+    setApproving(null);
     load();
   }
 
-  const approvedLots = lots.filter((l) => l.status === "Approved").length;
-  const pendingPayouts = payouts.filter((f) => f.paymentStatus === "Pending");
-  const paidPayouts = payouts.filter((f) => f.paymentStatus === "Paid");
+  // Derived counts
+  const approvedLotsList  = lots.filter((l) => l.status === "Approved");
+  const pendingList       = payouts.filter((f) => f.paymentStatus === "Pending");
+  const awaitingPayList   = payouts.filter((f) => f.paymentStatus === "Approved");
+  const paidList          = payouts.filter((f) => f.paymentStatus === "Paid");
+
+  const pendingAmt     = pendingList.reduce((s, f) => s + f.netAmount, 0);
+  const awaitingAmt    = awaitingPayList.reduce((s, f) => s + f.netAmount, 0);
+  const paidAmt        = paidList.reduce((s, f) => s + f.netAmount, 0);
+
+  // Filtered payout register
+  const filteredPayouts = useMemo(() => {
+    let list = statusFilter === "All" ? payouts : payouts.filter((f) => f.paymentStatus === statusFilter);
+    if (search.trim()) {
+      const s = search.trim().toLowerCase();
+      list = list.filter((f) =>
+        f.farmerName.toLowerCase().includes(s) ||
+        f.documentRef.toLowerCase().includes(s) ||
+        f.materialName.toLowerCase().includes(s) ||
+        (f.paymentRef ?? "").toLowerCase().includes(s),
+      );
+    }
+    return list.sort((a, b) => b.payoutDate.localeCompare(a.payoutDate));
+  }, [payouts, statusFilter, search]);
+
+  const tabs: Array<"All" | "Pending" | "Approved" | "Paid"> = ["All", "Pending", "Approved", "Paid"];
+  const tabCounts = { All: payouts.length, Pending: pendingList.length, Approved: awaitingPayList.length, Paid: paidList.length };
 
   return (
-    <div className="grid gap-6">
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-[#d8decf] bg-white p-5">
-          <p className="text-sm text-[#60735d]">Lots ready for settlement</p>
-          <p className="mt-2 text-3xl font-bold">{approvedLots}</p>
+    <div className="grid gap-5">
+
+      {/* ── KPI tiles ─────────────────────────────────────────────────────── */}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {/* Tile 1: Lots pending settlement posting */}
+        <button
+          onClick={() => {/* parent tab switch not possible from here; navigate to Model A */}}
+          className="rounded-xl border border-[#d8decf] bg-white p-4 text-left hover:border-[#aebba8] transition-colors group"
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#60735d]">Approved lots</p>
+            <AlertCircle size={16} className={approvedLotsList.length > 0 ? "text-amber-500" : "text-[#c8d4c0]"} />
+          </div>
+          <p className="mt-2 text-3xl font-bold text-[#172018]">{approvedLotsList.length}</p>
+          <p className="mt-1 text-xs text-[#8fa888]">
+            {approvedLotsList.length > 0 ? "Pending settlement posting in Model A" : "All lots settled"}
+          </p>
+        </button>
+
+        {/* Tile 2: Pending approval */}
+        <div className="rounded-xl border border-[#d8decf] bg-white p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#60735d]">Pending review</p>
+            <Clock size={16} className={pendingList.length > 0 ? "text-amber-500" : "text-[#c8d4c0]"} />
+          </div>
+          <p className="mt-2 text-3xl font-bold text-[#172018]">{pendingList.length}</p>
+          <p className="mt-1 text-xs font-semibold text-amber-600">{pendingList.length > 0 ? inr(pendingAmt) : "—"}</p>
         </div>
-        <div className="rounded-xl border border-[#d8decf] bg-white p-5">
-          <p className="text-sm text-[#60735d]">Pending farmer payouts</p>
-          <p className="mt-2 text-3xl font-bold">{pendingPayouts.length}</p>
-          <p className="mt-1 text-sm text-[#d97706]">{inr(pendingPayouts.reduce((s, f) => s + f.netAmount, 0))}</p>
-        </div>
-        <div className="rounded-xl border border-[#d8decf] bg-white p-5">
-          <p className="text-sm text-[#60735d]">Paid payouts</p>
-          <p className="mt-2 text-3xl font-bold">{paidPayouts.length}</p>
+
+        {/* Tile 3: Approved — awaiting payment */}
+        <button
+          onClick={() => router.push("/erp/accounting")}
+          className="rounded-xl border border-[#d8decf] bg-white p-4 text-left hover:border-[#aebba8] transition-colors group"
+        >
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#60735d]">Awaiting payment</p>
+            <Banknote size={16} className={awaitingPayList.length > 0 ? "text-blue-500" : "text-[#c8d4c0]"} />
+          </div>
+          <p className="mt-2 text-3xl font-bold text-[#172018]">{awaitingPayList.length}</p>
+          <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-blue-600">
+            {awaitingPayList.length > 0 ? <>{inr(awaitingAmt)} <ChevronRight size={11} />Go to Accounting</> : "—"}
+          </p>
+        </button>
+
+        {/* Tile 4: Paid */}
+        <div className="rounded-xl border border-[#d8decf] bg-white p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#60735d]">Paid payouts</p>
+            <TrendingUp size={16} className="text-[#15803d]" />
+          </div>
+          <p className="mt-2 text-3xl font-bold text-[#172018]">{paidList.length}</p>
+          <p className="mt-1 text-xs font-semibold text-[#15803d]">{paidList.length > 0 ? inr(paidAmt) : "—"}</p>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-[#d8decf] bg-white">
-        <div className="flex items-center justify-between border-b border-[#edf0e8] px-5 py-4">
-          <h3 className="text-lg font-semibold">Farmer payout register</h3>
-          <div className="flex gap-2">
-            <button className="btn btn-ghost flex items-center gap-1.5"><Download size={14} />Export</button>
-            <button className="btn btn-primary flex items-center gap-1.5"><ArrowRight size={14} />Release batch</button>
+      {/* ── Approved lots awaiting settlement posting ──────────────────────── */}
+      {approvedLotsList.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50">
+          <div className="flex items-center justify-between border-b border-amber-200 px-5 py-3">
+            <div className="flex items-center gap-2">
+              <AlertCircle size={15} className="text-amber-600" />
+              <p className="text-sm font-semibold text-amber-800">{approvedLotsList.length} lot{approvedLotsList.length !== 1 ? "s" : ""} approved — settlement not yet posted</p>
+            </div>
+            <span className="text-xs text-amber-600">Post settlement from Model A tab → then payout appears here</span>
+          </div>
+          <div className="divide-y divide-amber-100">
+            {approvedLotsList.slice(0, 5).map((l) => (
+              <div key={l.id} className="flex items-center gap-4 px-5 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <span className="font-mono text-xs font-bold text-[#172018]">{l.documentRef}</span>
+                  <span className="ml-2 text-xs text-amber-700">{l.materialName}</span>
+                  {l.supplierName && <span className="ml-2 text-xs text-[#8fa888]">· {l.supplierName}</span>}
+                </div>
+                <span className="text-xs font-semibold text-[#172018]">{l.netWeight.toFixed(3)} MT</span>
+                <span className="text-xs font-semibold text-[#172018]">{inr(l.grossSaleValue)}</span>
+              </div>
+            ))}
+            {approvedLotsList.length > 5 && (
+              <p className="px-5 py-2 text-xs text-amber-600">+{approvedLotsList.length - 5} more lots…</p>
+            )}
           </div>
         </div>
-        {loading ? <p className="px-5 py-8 text-sm text-[#60735d]">Loading…</p> : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-[#f3f6ef] text-xs font-semibold uppercase tracking-widest text-[#60735d]">
-                <tr>{["Farmer", "Lot ref", "Material", "Qty (MT)", "Rate (₹/MT)", "Gross", "Deductions", "Net payout", "Mode", "Status", "Action"].map((h) => <th key={h} className="px-4 py-3.5">{h}</th>)}</tr>
-              </thead>
-              <tbody>
-                {payouts.map((fp) => (
-                  <tr key={fp.id} className="border-t border-[#edf0e8] hover:bg-[#fafcf8]">
-                    <td className="px-4 py-3.5 font-semibold">{fp.farmerName}</td>
-                    <td className="px-4 py-3.5 font-mono text-xs text-[#536251]">{fp.documentRef}</td>
-                    <td className="px-4 py-3.5 text-[#536251]">{fp.materialName}</td>
-                    <td className="px-4 py-3.5 font-bold">{fp.quantity.toFixed(2)}</td>
-                    <td className="px-4 py-3.5 text-[#536251]">₹{fp.rate.toLocaleString("en-IN")}</td>
-                    <td className="px-4 py-3.5">{inr(fp.grossAmount)}</td>
-                    <td className="px-4 py-3.5 text-[#dc2626]">({inr(fp.deductions)})</td>
-                    <td className="px-4 py-3.5 font-semibold">{inr(fp.netAmount)}</td>
-                    <td className="px-4 py-3.5 text-[#536251]">{fp.paymentMode || "—"}</td>
-                    <td className="px-4 py-3.5"><StatusBadge status={fp.paymentStatus} /></td>
-                    <td className="px-4 py-3.5">
-                      {fp.paymentStatus === "Pending" ? (
-                        <button title="Approve payout" onClick={() => approvePayout(fp.id)}
-                          className="flex h-7 w-7 items-center justify-center rounded-md bg-green-600 text-white hover:bg-green-700">
-                          <CheckCircle2 size={13} />
-                        </button>
-                      ) : (
-                        <button title="View payout"
-                          className="flex h-7 w-7 items-center justify-center rounded-md border border-[#c8d4c0] bg-white text-[#536251] hover:bg-[#f0f4ec]">
-                          <Eye size={13} />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      )}
+
+      {/* ── Payout register ───────────────────────────────────────────────── */}
+      <div className="overflow-hidden rounded-xl border border-[#d8decf] bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf0e8] px-5 py-3.5">
+          <div>
+            <h3 className="text-base font-semibold">Supplier / Farmer payout register</h3>
+            <p className="text-xs text-[#60735d]">Payouts created automatically when settlement is posted</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {awaitingPayList.length > 0 && (
+              <button
+                onClick={() => router.push("/erp/accounting")}
+                className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+              >
+                <CreditCard size={13} />Go to Accounting · Pay {awaitingPayList.length}
+              </button>
+            )}
+            <button onClick={load} className="btn btn-ghost flex items-center gap-1.5 text-xs"><Refresh size={13} />Refresh</button>
+          </div>
+        </div>
+
+        {/* Status filter tabs + search */}
+        <div className="flex flex-wrap items-center gap-3 border-b border-[#edf0e8] bg-[#fafcf8] px-5 py-2.5">
+          <div className="flex gap-1">
+            {tabs.map((t) => (
+              <button
+                key={t}
+                onClick={() => setStatusFilter(t)}
+                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                  statusFilter === t
+                    ? "bg-[#172018] text-white"
+                    : "text-[#536251] hover:bg-[#e4ebe0]"
+                }`}
+              >
+                {t} {tabCounts[t] > 0 && <span className={`ml-0.5 ${statusFilter === t ? "opacity-70" : "text-[#8fa888]"}`}>({tabCounts[t]})</span>}
+              </button>
+            ))}
+          </div>
+          <div className="relative min-w-48 flex-1">
+            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#9aad9c]" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search supplier, challan, material…"
+              className="w-full rounded-lg border border-[#c8d4c0] bg-white py-1.5 pl-8 pr-3 text-xs outline-none focus:border-[#16a34a]"
+            />
+          </div>
+        </div>
+
+        {loading ? (
+          <p className="px-5 py-10 text-center text-sm text-[#60735d]">Loading payouts…</p>
+        ) : filteredPayouts.length === 0 ? (
+          <div className="px-5 py-10 text-center">
+            <p className="text-sm font-semibold text-[#172018]">No payouts found</p>
+            <p className="mt-1 text-xs text-[#8fa888]">
+              {payouts.length === 0 ? "Payouts are created automatically when settlement is posted from Model A." : "Try a different filter or search term."}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-[#edf0e8]">
+            {filteredPayouts.map((fp) => {
+              const isPending  = fp.paymentStatus === "Pending";
+              const isApproved = fp.paymentStatus === "Approved";
+              const isPaid     = fp.paymentStatus === "Paid";
+              return (
+                <div key={fp.id} className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 transition-colors hover:bg-[#fafcf8] ${isApproved ? "bg-blue-50/40" : ""}`}>
+                  {/* Supplier + lot info */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <span className="font-semibold text-sm text-[#172018]">{fp.farmerName}</span>
+                      <span className="font-mono text-xs text-[#8fa888]">{fp.documentRef}</span>
+                      <span className="text-xs text-[#60735d]">{fp.materialName}</span>
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-3 text-xs text-[#8fa888]">
+                      <span>{fp.payoutDate}</span>
+                      <span>{fp.quantity.toFixed(3)} MT @ ₹{fp.rate.toLocaleString("en-IN")}/MT</span>
+                      {isPaid && fp.paymentRef && <span className="font-medium text-[#60735d]">Ref: {fp.paymentRef}</span>}
+                      {isPaid && fp.paymentMode && <span>{fp.paymentMode}</span>}
+                    </div>
+                  </div>
+
+                  {/* Financials */}
+                  <div className="flex items-center gap-4 text-right text-xs">
+                    <div>
+                      <p className="text-[#8fa888]">Gross</p>
+                      <p className="font-medium text-[#172018]">{inr(fp.grossAmount)}</p>
+                    </div>
+                    {fp.deductions > 0 && (
+                      <div>
+                        <p className="text-[#8fa888]">Deductions</p>
+                        <p className="font-medium text-[#dc2626]">({inr(fp.deductions)})</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-[#8fa888]">Net payout</p>
+                      <p className="text-base font-bold text-[#172018]">{inr(fp.netAmount)}</p>
+                    </div>
+                  </div>
+
+                  {/* Status + action */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <StatusBadge status={fp.paymentStatus} />
+                    {isPending && (
+                      <button
+                        onClick={() => approvePayout(fp.id)}
+                        disabled={approving === fp.id}
+                        title="Approve payout — marks it ready for payment in Accounting"
+                        className="flex items-center gap-1 rounded-md bg-[#15803d] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#166534] disabled:opacity-50"
+                      >
+                        <Check size={11} />{approving === fp.id ? "Saving…" : "Approve"}
+                      </button>
+                    )}
+                    {isApproved && (
+                      <button
+                        onClick={() => router.push("/erp/accounting")}
+                        title="Go to Accounting to post payment"
+                        className="flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-700"
+                      >
+                        <CreditCard size={11} />Pay now
+                      </button>
+                    )}
+                    {isPaid && (
+                      <span className="flex items-center gap-1 text-xs font-semibold text-[#15803d]">
+                        <CheckCircle2 size={13} />Paid
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Footer summary */}
+        {filteredPayouts.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#edf0e8] bg-[#f3f6ef] px-5 py-2.5 text-xs text-[#536251]">
+            <span>{filteredPayouts.length} record{filteredPayouts.length !== 1 ? "s" : ""}</span>
+            <span className="font-semibold">
+              Total: {inr(filteredPayouts.reduce((s, f) => s + f.netAmount, 0))}
+            </span>
           </div>
         )}
       </div>

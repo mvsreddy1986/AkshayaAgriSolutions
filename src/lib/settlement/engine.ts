@@ -111,13 +111,16 @@ export function calculateLotSettlement(lot: InwardLot, rule: QualityRule, materi
   const effectiveCessRate = materialCessRate !== undefined ? materialCessRate : rule.globalCessRate;
   // Total cess = rate% × gross notional (actual weighbridge weight × rate, before quality deductions)
   const cessTotal = r2((effectiveCessRate / 100) * netWt * grossSaleRate);
-  // Paid at mandi gate (from quality check readings) — already settled, shown as info
+  // Paid at mandi gate by supplier — Akshaya reimburses this separately via gate-payment entry
   const cessPaid = r2(Math.min(lot.cessAmount > 0 ? lot.cessAmount : 0, cessTotal));
-  // Only the balance flows through this settlement
+  // Balance = remaining cess not yet paid at gate (deducted from Sarvani's settlement payment)
   const cessBalance = r2(cessTotal - cessPaid);
-  const cessAmount = cessBalance;
+  const cessAmount = cessBalance; // backward-compat alias
   const holdPenalty = r2(lot.holdPenalty ?? 0);
   const totalValueDeduction = r2(paramCalcs.reduce((s, c) => s + c.valueDeduction, 0));
+  // netSettlementValue = grossSaleValue − cessBalance − holdPenalty (before Akshaya margin)
+  // Display: grossSaleValue − cessTotal + cessPaid reimbursement = grossSaleValue − cessBalance
+  // This is the effective base for a single supplier payment (margin deducted from here)
   const netSettlementValue = r2(grossSaleValue - cessBalance - holdPenalty);
 
   return {
@@ -192,6 +195,10 @@ export function validateLotForSettlement(
     issues.push(`Lot ${lot.documentRef} is on Quality Hold — resolve before settling`);
   if (lot.status === "Draft")
     issues.push(`Lot ${lot.documentRef} is in Draft — approve first`);
+
+  // Invoice must exist before settlement so Sarvani ledger entries are tied to a tax invoice
+  if (!lot.invoiceId)
+    issues.push(`Tax Invoice to Sarvani must be generated before posting settlement for lot ${lot.documentRef}`);
 
   const rule = lot.qualityRuleId
     ? rules.find((r) => r.id === lot.qualityRuleId)

@@ -17,8 +17,10 @@ import {
   AlertTriangle,
   ChevronRight,
   BarChart2,
+  Banknote,
 } from "lucide-react";
 import type { InwardLot, LedgerEntry, Invoice, Material, Voucher } from "../../lib/types";
+import { useFY, inFY } from "./fy-context";
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
@@ -105,6 +107,7 @@ function LoadingShimmer() {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CommandCenterPage() {
+  const { fy } = useFY();
   const [lots, setLots] = useState<InwardLot[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
@@ -187,10 +190,11 @@ export default function CommandCenterPage() {
     pendingApprovalLots,
     qualityHoldLots,
   } = useMemo(() => {
-    const lotsToday = lots.filter((l) => l.lotDate === today).length;
-    const lotsThisMonth = lots.filter((l) => l.lotDate >= thisMonthStart).length;
-    const qualityHolds = lots.filter((l) => l.status === "QualityHold").length;
-    const pendingSettlements = lots.filter((l) => l.status === "Approved").length;
+    const fyLots = lots.filter((l) => inFY(l.lotDate, fy));
+    const lotsToday = fyLots.filter((l) => l.lotDate === today).length;
+    const lotsThisMonth = fyLots.filter((l) => l.lotDate >= thisMonthStart).length;
+    const qualityHolds = fyLots.filter((l) => l.status === "QualityHold").length;
+    const pendingSettlements = fyLots.filter((l) => l.status === "Approved").length;
 
     const statusOrder = [
       "Draft",
@@ -203,11 +207,11 @@ export default function CommandCenterPage() {
     type LotStatusKey = (typeof statusOrder)[number];
     const lotsByStatus = statusOrder.map((s) => ({
       status: s as LotStatusKey,
-      count: lots.filter((l) => l.status === s).length,
+      count: fyLots.filter((l) => l.status === s).length,
     }));
-    const totalLots = lots.length;
+    const totalLots = fyLots.length;
 
-    const settledInvoicedThisMonth = lots.filter(
+    const settledInvoicedThisMonth = fyLots.filter(
       (l) =>
         (l.status === "Settled" || l.status === "Invoiced") &&
         l.lotDate >= thisMonthStart
@@ -215,22 +219,22 @@ export default function CommandCenterPage() {
     const volumeMTThisMonth =
       settledInvoicedThisMonth.reduce((sum, l) => sum + l.netWeight, 0) / 1000;
 
-    const pendingSettlementLots = lots.filter(
+    const pendingSettlementLots = fyLots.filter(
       (l) => l.status !== "Settled" && l.status !== "Invoiced"
     );
     const volumeMTPendingSettlement =
       pendingSettlementLots.reduce((sum, l) => sum + l.netWeight, 0) / 1000;
 
-    const recentLots = [...lots]
+    const recentLots = [...fyLots]
       .sort((a, b) => {
         const d = b.lotDate.localeCompare(a.lotDate);
         return d !== 0 ? d : b.id.localeCompare(a.id);
       })
       .slice(0, 8);
 
-    const pendingApprovalLots = lots.filter((l) => l.status === "Approved");
+    const pendingApprovalLots = fyLots.filter((l) => l.status === "Approved");
 
-    const qualityHoldLots = lots
+    const qualityHoldLots = fyLots
       .filter((l) => l.status === "QualityHold")
       .slice(0, 5);
 
@@ -247,9 +251,11 @@ export default function CommandCenterPage() {
       pendingApprovalLots,
       qualityHoldLots,
     };
-  }, [lots]);
+  }, [lots, fy]);
 
   // ── Ledger-based financials ───────────────────────────────────────────────
+  const fyLedger = useMemo(() => ledger.filter((e) => inFY(e.entryDate, fy)), [ledger, fy]);
+
   const {
     revenuePosted,
     marginEarned,
@@ -260,22 +266,24 @@ export default function CommandCenterPage() {
     supplierDr,
     customerOutstanding,
     supplierPayable,
+    expensesMTD,
+    drawingsFY,
     uniqueSuppliers,
     unsettledInvoiceCount,
   } = useMemo(() => {
     const sumCr = (code: string) =>
-      ledger
+      fyLedger
         .filter((e) => e.accountCode === code)
         .reduce((s, e) => s + e.credit, 0);
     const sumDr = (code: string) =>
-      ledger
+      fyLedger
         .filter((e) => e.accountCode === code)
         .reduce((s, e) => s + e.debit, 0);
 
     const revenuePosted = sumCr("3100") - sumDr("3100");
     const marginEarned = sumCr("3200") - sumDr("3200");
 
-    const marginMTD = ledger
+    const marginMTD = fyLedger
       .filter((e) => e.accountCode === "3200" && e.entryDate >= thisMonthStart)
       .reduce((s, e) => s + e.credit - e.debit, 0);
 
@@ -287,8 +295,16 @@ export default function CommandCenterPage() {
     const customerOutstanding = Math.max(0, customerDr - customerCr);
     const supplierPayable = Math.max(0, supplierCr - supplierDr);
 
+    const expensesMTD = fyLedger
+      .filter((e) => e.accountCode.startsWith("52") && e.entryDate >= thisMonthStart)
+      .reduce((s, e) => s + e.debit - e.credit, 0);
+
+    const drawingsFY = fyLedger
+      .filter((e) => e.accountCode === "3900")
+      .reduce((s, e) => s + e.debit - e.credit, 0);
+
     const uniqueSuppliers = new Set(
-      ledger
+      fyLedger
         .filter((e) => e.accountCode === "2101" && e.partyId)
         .map((e) => e.partyId)
     ).size;
@@ -307,17 +323,19 @@ export default function CommandCenterPage() {
       supplierDr,
       customerOutstanding,
       supplierPayable,
+      expensesMTD,
+      drawingsFY,
       uniqueSuppliers,
       unsettledInvoiceCount,
     };
-  }, [ledger, invoices]);
+  }, [fyLedger, invoices]);
 
   // ── Vouchers ──────────────────────────────────────────────────────────────
   const recentVouchers = useMemo(
     () =>
       [...vouchers]
         .sort((a, b) => b.voucherDate.localeCompare(a.voucherDate))
-        .slice(0, 5),
+        .slice(0, 6),
     [vouchers]
   );
 
@@ -384,7 +402,7 @@ export default function CommandCenterPage() {
           </h1>
           <p className="mt-1 text-sm text-[#8aab8e]">{todayFormatted}</p>
           <p className="mt-0.5 text-xs text-[#6b8c6e]">
-            Your daily operations overview
+            {fy.label === "All time" ? "All-time data" : `Showing ${fy.label} · ${fy.dateFrom} → ${fy.dateTo}`}
           </p>
         </div>
         <div className="flex gap-3 flex-wrap">
@@ -407,14 +425,15 @@ export default function CommandCenterPage() {
 
       {/* ── 2. QUICK ACTIONS ─────────────────────────────────────────────── */}
       <div className="overflow-x-auto -mx-1 px-1">
-        <div className="flex gap-3 min-w-max sm:min-w-0 sm:grid sm:grid-cols-6">
+        <div className="flex gap-3 min-w-max sm:min-w-0 sm:grid sm:grid-cols-4 lg:grid-cols-7">
           {[
-            { Icon: PackagePlus,  label: "New Lot",    href: "/erp/procurement" },
-            { Icon: FileUp,       label: "Import PDF",  href: "/erp/procurement" },
-            { Icon: CheckCircle2, label: "Settle Lot",  href: "/erp/procurement" },
-            { Icon: Receipt,      label: "Invoices",    href: "/erp/accounting"  },
-            { Icon: BarChart3,    label: "Reports",     href: "/erp/reports"     },
-            { Icon: Database,     label: "Masters",     href: "/erp/masters"     },
+            { Icon: PackagePlus,  label: "New Lot",       href: "/erp/procurement" },
+            { Icon: FileUp,       label: "Import PDF",    href: "/erp/procurement" },
+            { Icon: CheckCircle2, label: "Settle Lot",    href: "/erp/procurement" },
+            { Icon: Receipt,      label: "Invoices",      href: "/erp/accounting"  },
+            { Icon: Banknote,     label: "Expenses",      href: "/erp/accounting"  },
+            { Icon: BarChart3,    label: "Reports",       href: "/erp/reports"     },
+            { Icon: Database,     label: "Masters",       href: "/erp/masters"     },
           ].map(({ Icon, label, href }) => (
             <Link
               key={label}
@@ -640,12 +659,30 @@ export default function CommandCenterPage() {
             </div>
 
             {/* Margin MTD */}
-            <div className="flex items-center justify-between py-3 border-t border-[#eef3e8]">
+            <div className="flex items-center justify-between py-2.5 border-t border-[#eef3e8]">
               <span className="text-sm text-[#536251]">Margin (MTD)</span>
               <span className="text-sm font-bold text-green-700">
                 {inr(marginMTD)}
               </span>
             </div>
+
+            {/* Expenses MTD */}
+            <div className="flex items-center justify-between py-2.5 border-t border-[#eef3e8]">
+              <span className="text-sm text-[#536251]">Expenses (MTD)</span>
+              <span className="text-sm font-bold text-amber-700">
+                {expensesMTD > 0 ? inr(expensesMTD) : "—"}
+              </span>
+            </div>
+
+            {/* Drawings FY */}
+            {drawingsFY > 0 && (
+              <div className="flex items-center justify-between py-2.5 border-t border-[#eef3e8]">
+                <span className="text-sm text-[#536251]">Drawings (FY)</span>
+                <span className="text-sm font-bold text-purple-700">
+                  {inr(drawingsFY)}
+                </span>
+              </div>
+            )}
 
           </div>
           <p className="mt-2 text-xs text-[#9aad9c] border-t border-[#eef3e8] pt-3">
@@ -866,7 +903,7 @@ export default function CommandCenterPage() {
 
       {/* ── 7. RECENT VOUCHERS ───────────────────────────────────────────── */}
       {recentVouchers.length > 0 && (
-        <SectionCard title="Recent Payments & Receipts">
+        <SectionCard title="Recent Transactions">
           <div className="overflow-x-auto -m-1 p-1">
             <table className="w-full text-sm">
               <thead>
@@ -898,7 +935,11 @@ export default function CommandCenterPage() {
                         style={
                           v.voucherType === "Receipt"
                             ? { background: "#dcfce7", color: "#15803d" }
-                            : { background: "#fee2e2", color: "#b91c1c" }
+                            : v.voucherType === "Payment"
+                            ? { background: "#fee2e2", color: "#b91c1c" }
+                            : v.voucherType === "Expense"
+                            ? { background: "#fef3c7", color: "#92400e" }
+                            : { background: "#ede9fe", color: "#7c3aed" }
                         }
                       >
                         {v.voucherType}
