@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import type { LedgerEntry, Invoice } from "../../../lib/types";
+import { useFY as useGlobalFY } from "../fy-context";
 import {
   TrendingUp, BarChart3, Wallet, AlertCircle,
   ArrowUpCircle, ArrowDownCircle, RefreshCw, ChevronDown, ChevronRight,
@@ -943,7 +944,18 @@ function ARAgingTab({ fy }: { fy: FYPeriod }) {
 
 export default function FinancePage() {
   const [tab, setTab] = useState<Tab>("Dashboard");
-  const [fy, setFy]   = useState<FYPeriod>(FY_LIST[0]); // current FY by default
+  const { fy: globalFy } = useGlobalFY();
+  const [fy, setFy]   = useState<FYPeriod>(() => {
+    // initialise from global; the local picker still allows override
+    const match = FY_LIST.find((f) => f.label === globalFy.label);
+    return match ?? FY_LIST[0];
+  });
+
+  // Keep in sync when user changes the global FY picker in the header
+  useEffect(() => {
+    const match = FY_LIST.find((f) => f.label === globalFy.label);
+    if (match) setFy(match);
+  }, [globalFy.label]);
 
   return (
     <div className="grid gap-5">

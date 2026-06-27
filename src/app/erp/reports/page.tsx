@@ -14,6 +14,7 @@ import {
   Search,
 } from "lucide-react";
 import type { InwardLot, LedgerEntry, Invoice, Material, Party, LotStatus } from "../../../lib/types";
+import { useFY as useGlobalFY } from "../fy-context";
 
 // ── Voucher type (API returns these) ────────────────────────────────────────
 interface Voucher {
@@ -1560,6 +1561,7 @@ function GSTTab({
 // ── Root page ─────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
+  const { fy: globalFy } = useGlobalFY();
   const [tab, setTab] = useState<Tab>("Overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1573,12 +1575,20 @@ export default function ReportsPage() {
   });
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
-  const todayBounds = periodBounds("month");
-  const [period, setPeriod] = useState<Period>({
-    quick: "month",
-    from: todayBounds.from,
-    to: todayBounds.to,
-  });
+  // Initialise period from the global FY picker; stay in sync when user changes it
+  const [period, setPeriod] = useState<Period>(() =>
+    globalFy.dateFrom
+      ? { quick: "custom", from: globalFy.dateFrom, to: globalFy.dateTo }
+      : { quick: "all", from: "2020-01-01", to: "2099-12-31" }
+  );
+
+  useEffect(() => {
+    setPeriod(
+      globalFy.dateFrom
+        ? { quick: "custom", from: globalFy.dateFrom, to: globalFy.dateTo }
+        : { quick: "all", from: "2020-01-01", to: "2099-12-31" }
+    );
+  }, [globalFy.dateFrom, globalFy.dateTo]);
 
   useEffect(() => {
     let cancelled = false;

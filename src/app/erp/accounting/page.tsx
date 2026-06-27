@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import type { Invoice, Voucher, LedgerEntry, Party, FarmerPayout, InwardLot } from "../../../lib/types";
+import { useFY, inFY } from "../fy-context";
 import {
   FileText, Receipt, CreditCard, BookOpen, Scale,
   Plus, Check, X, Download, CheckCircle2, Send, RotateCcw,
@@ -69,6 +70,7 @@ function ModelBadge({ model }: { model: string }) {
 // ─── INVOICES ─────────────────────────────────────────────────────────────────
 
 function InvoicesTab() {
+  const { fy } = useFY();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [parties, setParties] = useState<Party[]>([]);
   const [loading, setLoading] = useState(true);
@@ -147,10 +149,15 @@ function InvoicesTab() {
     load();
   }
 
-  const totalDue = invoices.filter((i) => i.status !== "Paid" && i.status !== "Cancelled").reduce((s, i) => s + i.amountDue, 0);
+  const fyInvoices = useMemo(() => invoices.filter((i) => inFY(i.invoiceDate, fy)), [invoices, fy]);
+
+  const totalDue = useMemo(
+    () => fyInvoices.filter((i) => i.status !== "Paid" && i.status !== "Cancelled").reduce((s, i) => s + i.amountDue, 0),
+    [fyInvoices]
+  );
 
   const filteredInvoices = useMemo(() => {
-    let list = invoiceStatusFilter === "All" ? invoices : invoices.filter((i) => i.status === invoiceStatusFilter);
+    let list = invoiceStatusFilter === "All" ? fyInvoices : fyInvoices.filter((i) => i.status === invoiceStatusFilter);
     if (invoiceSearch.trim()) {
       const q = invoiceSearch.trim().toLowerCase();
       list = list.filter((i) =>
@@ -160,11 +167,11 @@ function InvoicesTab() {
       );
     }
     return list;
-  }, [invoices, invoiceStatusFilter, invoiceSearch]);
+  }, [fyInvoices, invoiceStatusFilter, invoiceSearch]);
 
-  const draftCount    = invoices.filter((i) => i.status === "Draft").length;
-  const approvedCount = invoices.filter((i) => i.status === "Approved" || i.status === "Sent").length;
-  const paidCount     = invoices.filter((i) => i.status === "Paid").length;
+  const draftCount    = fyInvoices.filter((i) => i.status === "Draft").length;
+  const approvedCount = fyInvoices.filter((i) => i.status === "Approved" || i.status === "Sent").length;
+  const paidCount     = fyInvoices.filter((i) => i.status === "Paid").length;
 
   return (
     <div className="grid gap-5">
@@ -414,6 +421,7 @@ function InvoicesTab() {
 const TDS_THRESHOLD = 2_000_000; // ₹20 lakhs
 
 function ReceiptsTab({ preset, onPresetConsumed }: { preset: { partyId: string; invoiceId: string; invoiceNo?: string } | null; onPresetConsumed: () => void }) {
+  const { fy } = useFY();
   const [vouchers, setVouchers]           = useState<Voucher[]>([]);
   const [allInvoices, setAllInvoices]     = useState<Invoice[]>([]);
   const [parties, setParties]             = useState<Party[]>([]);
@@ -762,13 +770,14 @@ function ReceiptsTab({ preset, onPresetConsumed }: { preset: { partyId: string; 
       </div>{/* end collapsible receipt card */}
 
       {loading ? <p className="py-8 text-center text-sm text-[#60735d]">Loading…</p> : (() => {
+        const fyVouchers = vouchers.filter((v) => inFY(v.voucherDate, fy));
         const filteredVouchers = receiptSearch.trim()
-          ? vouchers.filter((v) => {
+          ? fyVouchers.filter((v) => {
               const q = receiptSearch.toLowerCase();
               return v.voucherNo.toLowerCase().includes(q) || v.partyName.toLowerCase().includes(q) || (v.bankRef ?? "").toLowerCase().includes(q);
             })
-          : vouchers;
-        const totalPosted = vouchers.reduce((s, v) => s + v.amount, 0);
+          : fyVouchers;
+        const totalPosted = fyVouchers.reduce((s, v) => s + v.amount, 0);
         return (
           <div className="overflow-hidden rounded-xl border border-[#d8decf] bg-white">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf0e8] px-4 py-3">
@@ -830,6 +839,7 @@ function ReceiptsTab({ preset, onPresetConsumed }: { preset: { partyId: string; 
 // ─── PAYMENTS ─────────────────────────────────────────────────────────────────
 
 function PaymentsTab() {
+  const { fy } = useFY();
   const [vouchers, setVouchers]           = useState<Voucher[]>([]);
   const [allPayouts, setAllPayouts]       = useState<FarmerPayout[]>([]);
   const [allLots, setAllLots]             = useState<InwardLot[]>([]);
@@ -1206,18 +1216,19 @@ function PaymentsTab() {
       </div>{/* end collapsible payment card */}
 
       {loading ? <p className="py-8 text-center text-sm text-[#60735d]">Loading…</p> : (() => {
+        const fyPayVouchers = vouchers.filter((v) => inFY(v.voucherDate, fy));
         const filteredPayVouchers = paySearch.trim()
-          ? vouchers.filter((v) => {
+          ? fyPayVouchers.filter((v) => {
               const q = paySearch.toLowerCase();
               return v.voucherNo.toLowerCase().includes(q) || v.partyName.toLowerCase().includes(q) || (v.bankRef ?? "").toLowerCase().includes(q);
             })
-          : vouchers;
+          : fyPayVouchers;
         return (
           <div className="overflow-hidden rounded-xl border border-[#d8decf] bg-white">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf0e8] px-4 py-3">
               <div>
                 <h3 className="text-base font-semibold">Payment voucher register</h3>
-                <p className="text-xs text-[#60735d]">{vouchers.length} payment{vouchers.length !== 1 ? "s" : ""} posted</p>
+                <p className="text-xs text-[#60735d]">{fyPayVouchers.length} payment{fyPayVouchers.length !== 1 ? "s" : ""} posted</p>
               </div>
               <div className="relative min-w-48">
                 <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#9aad9c]" />
@@ -1273,6 +1284,7 @@ function PaymentsTab() {
 // ─── EXPENSES & DRAWINGS ──────────────────────────────────────────────────────
 
 function ExpensesTab() {
+  const { fy } = useFY();
   const [vouchers, setVouchers]     = useState<Voucher[]>([]);
   const [loading, setLoading]       = useState(true);
   const [saving, setSaving]         = useState(false);
@@ -1358,23 +1370,23 @@ function ExpensesTab() {
     }
   }
 
-  const expVouchers   = useMemo(() => vouchers.filter((v) => v.voucherType === "Expense"), [vouchers]);
-  const drawVouchers  = useMemo(() => vouchers.filter((v) => v.voucherType === "Drawing"), [vouchers]);
+  const fyVouchers    = useMemo(() => vouchers.filter((v) => inFY(v.voucherDate, fy)), [vouchers, fy]);
+  const expVouchers   = useMemo(() => fyVouchers.filter((v) => v.voucherType === "Expense"), [fyVouchers]);
+  const drawVouchers  = useMemo(() => fyVouchers.filter((v) => v.voucherType === "Drawing"), [fyVouchers]);
 
   const thisMonth     = new Date().toISOString().slice(0, 7);
-  const fyStart       = (() => { const n = new Date(); return n.getMonth() >= 3 ? `${n.getFullYear()}-04` : `${n.getFullYear() - 1}-04`; })();
   const monthExpTotal = expVouchers.filter((v) => v.voucherDate.startsWith(thisMonth)).reduce((s, v) => s + v.amount, 0);
-  const fyDrawTotal   = drawVouchers.filter((v) => v.voucherDate.slice(0, 7) >= fyStart).reduce((s, v) => s + v.amount, 0);
+  const fyDrawTotal   = drawVouchers.reduce((s, v) => s + v.amount, 0);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return vouchers;
+    if (!search.trim()) return fyVouchers;
     const q = search.toLowerCase();
-    return vouchers.filter((v) =>
+    return fyVouchers.filter((v) =>
       v.voucherNo.toLowerCase().includes(q) ||
       v.narration.toLowerCase().includes(q) ||
       (v.bankRef ?? "").toLowerCase().includes(q)
     );
-  }, [vouchers, search]);
+  }, [fyVouchers, search]);
 
   // Category breakdown for the current month
   const categoryBreakdown = useMemo(() =>
@@ -1651,17 +1663,22 @@ interface AccountSummary {
 }
 
 function TrialBalanceTab() {
+  const { fy } = useFY();
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
-    fetch("/api/ledger")
+    const params = new URLSearchParams();
+    if (fy.dateFrom) params.set("dateFrom", fy.dateFrom);
+    if (fy.dateTo)   params.set("dateTo",   fy.dateTo);
+    const q = params.toString();
+    fetch(`/api/ledger${q ? "?" + q : ""}`)
       .then((r) => r.json())
       .then((data) => setEntries(Array.isArray(data) ? data : []))
       .finally(() => setLoading(false));
-  }, []);
+  }, [fy.dateFrom, fy.dateTo]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1883,12 +1900,19 @@ interface JournalGroup {
 }
 
 function JournalTab() {
+  const { fy } = useFY();
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(fy.dateFrom ?? "");
+  const [dateTo, setDateTo] = useState(fy.dateTo ?? "");
   const [expandedRef, setExpandedRef] = useState<string | null>(null);
+
+  // Sync date filters when global FY changes
+  useEffect(() => {
+    setDateFrom(fy.dateFrom ?? "");
+    setDateTo(fy.dateTo ?? "");
+  }, [fy.dateFrom, fy.dateTo]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -2300,6 +2324,7 @@ function AdjustmentsTab() {
 // ─── PAGE ─────────────────────────────────────────────────────────────────────
 
 export default function AccountingPage() {
+  const { fy } = useFY();
   const [tab, setTab] = useState<Tab>("Invoices");
   const [receiptPreset, setReceiptPreset] = useState<{ partyId: string; invoiceId: string; invoiceNo?: string } | null>(null);
 
@@ -2315,6 +2340,16 @@ export default function AccountingPage() {
 
   return (
     <div className="grid gap-5">
+      {/* FY indicator */}
+      <div className="flex items-center gap-2 text-xs text-[#60735d]">
+        <span className="rounded-full border border-[#c8d4c0] bg-[#f3f6ef] px-2.5 py-1 font-semibold">
+          {fy.label}
+        </span>
+        {fy.dateFrom && (
+          <span className="text-[#9aad9c]">{fy.dateFrom} → {fy.dateTo} · Change in top bar</span>
+        )}
+      </div>
+
       {/* Tab navigation */}
       <div className="flex gap-1.5 overflow-x-auto rounded-xl border border-[#d8decf] bg-white p-1.5">
         {TABS.map((t) => {
