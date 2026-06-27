@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Database, PackageSearch, Banknote, ShoppingBag,
   Calculator, FileStack, BarChart3, Settings2,
   FlaskConical, Menu, X, TrendingUp, TrendingDown, Minus,
-  Search, LogOut, Wheat, RefreshCw, ChevronRight, Calendar,
+  Search, LogOut, Wheat, RefreshCw, ChevronRight, Calendar, Upload,
 } from "lucide-react";
 import { FYProvider, FY_LIST, useFY } from "./fy-context";
 
@@ -19,6 +19,7 @@ const NAV = [
   { key: "finance",     href: "/erp/finance",       label: "Finance Flow",      short: "Farmer finance exposure",      Icon: Banknote },
   { key: "sales",       href: "/erp/sales",         label: "Sales & Inventory", short: "Model C resale",               Icon: ShoppingBag },
   { key: "accounting",  href: "/erp/accounting",    label: "Accounting",        short: "GST, ledgers, payments",       Icon: Calculator },
+  { key: "import",      href: "/erp/import",        label: "Bulk Import",       short: "Historical data migration",    Icon: Upload },
   { key: "documents",   href: "/erp/documents",     label: "Document Hub",      short: "PDF, Excel, audit files",      Icon: FileStack },
   { key: "reports",     href: "/erp/reports",       label: "Reports & KPIs",    short: "MIS and exports",              Icon: BarChart3 },
   { key: "admin",       href: "/erp/admin",         label: "Administration",    short: "Users and controls",           Icon: Settings2 },
