@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLedgerEntries } from "../../../../lib/db";
 import type { LedgerEntry } from "../../../../lib/types";
-
-function errMsg(e: unknown) {
-  if (e instanceof Error) return e.message;
-  if (typeof e === "object" && e !== null && "message" in e) return String((e as { message: unknown }).message);
-  return String(e);
-}
+import { errMsg } from "../../../../lib/utils";
 
 /**
  * POST /api/ledger/invoice-entry

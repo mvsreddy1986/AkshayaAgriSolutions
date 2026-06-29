@@ -1,16 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listVouchers, createVoucher, createLedgerEntries, getInvoice, updateInvoice, updateVoucher } from "../../../lib/db";
 import type { Invoice, LedgerEntry } from "../../../lib/types";
+import { r2, errMsg } from "../../../lib/utils";
 
 export const dynamic = "force-dynamic";
-
-function r2(n: number) { return Math.round(n * 100) / 100; }
-
-function errMsg(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  if (typeof e === "object" && e !== null && "message" in e) return String((e as { message: unknown }).message);
-  return String(e);
-}
 
 export async function GET(req: NextRequest) {
   try {

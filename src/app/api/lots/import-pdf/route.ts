@@ -6,6 +6,7 @@ import { createLot, listParties, listMaterials, listRates, listQualityRules } fr
 import { supabase } from "../../../../lib/supabase/client";
 import { adminSupabase } from "../../../../lib/supabase/admin";
 import type { InwardLot } from "../../../../lib/types";
+import { r3, errMsg } from "../../../../lib/utils";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,13 +22,6 @@ export interface ProductGroup {
   grossMT: number;
   netMT: number;
   provisionalValue: number;
-}
-
-function r3(n: number) { return Math.round(n * 1000) / 1000; }
-function errMsg(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  if (typeof e === "object" && e !== null && "message" in e) return String((e as { message: unknown }).message);
-  return String(e);
 }
 
 function addToGroup(

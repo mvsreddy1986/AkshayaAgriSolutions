@@ -1,4 +1,5 @@
 import type { InwardLot, QualityRule, MaterialParam, LedgerEntry, ParameterRule } from "@/lib/types";
+import { r2 } from "@/lib/utils";
 
 // ── Output types ──────────────────────────────────────────────────────────────
 
@@ -196,16 +197,20 @@ export function validateLotForSettlement(
   if (lot.status === "Draft")
     issues.push(`Lot ${lot.documentRef} is in Draft — approve first`);
 
-  // Invoice must exist before settlement so Sarvani ledger entries are tied to a tax invoice
-  if (!lot.invoiceId)
+  // Invoice must exist before settlement so Sarvani ledger entries are tied to a tax invoice.
+  // Historical bulk-imported lots are exempt — their invoices pre-date the ERP; settle route
+  // resolves the invoice at post time if the invoice number is embedded in overrideReason.
+  const isHistoricalImport = lot.overrideReason?.startsWith("Historical import");
+  if (!lot.invoiceId && !isHistoricalImport)
     issues.push(`Tax Invoice to Sarvani must be generated before posting settlement for lot ${lot.documentRef}`);
 
-  const rule = lot.qualityRuleId
-    ? rules.find((r) => r.id === lot.qualityRuleId)
-    : undefined;
+  // Match by explicit assignment first, then fall back to any active rule for the same material
+  const rule =
+    (lot.qualityRuleId ? rules.find((r) => r.id === lot.qualityRuleId) : undefined) ??
+    rules.find((r) => r.materialId === lot.materialId && r.status === "Active");
 
   if (!rule) {
-    issues.push(`No quality rule found for lot ${lot.documentRef} (rule ID: ${lot.qualityRuleId ?? "unset"})`);
+    issues.push(`No active quality rule found for material "${lot.materialName ?? lot.materialId}". Add one under Master Data → Quality Rules.`);
   } else {
     if (rule.status === "Draft")
       issues.push(`Quality rule for lot ${lot.documentRef} is still in Draft status`);
@@ -367,11 +372,6 @@ export function generateSettlementPostings(
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
-
-/** Round to 2 decimal places. */
-function r2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 
 function makeCalc(
   paramKey: string, label: string, reading: number | string,

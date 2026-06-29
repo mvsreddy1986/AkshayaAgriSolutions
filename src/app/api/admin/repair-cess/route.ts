@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getLot, listQualityRules, listMaterials } from "../../../../lib/db";
 import { calculateLotSettlement, paramQualityAccount } from "../../../../lib/settlement/engine";
 import { supabase } from "../../../../lib/supabase/client";
-
-function r2(n: number) { return Math.round(n * 100) / 100; }
+import { r2 } from "../../../../lib/utils";
 
 /**
  * GET /api/admin/repair-cess?ref=2627000472

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateQualityRule, deleteQualityRule } from "../../../../lib/db";
 
+import { errMsg } from "../../../../lib/utils";
+
 type Ctx = { params: Promise<{ id: string }> };
-function errMsg(e: unknown) { return e instanceof Error ? e.message : String(e); }
 
 export async function PUT(req: NextRequest, ctx: Ctx) {
   try {

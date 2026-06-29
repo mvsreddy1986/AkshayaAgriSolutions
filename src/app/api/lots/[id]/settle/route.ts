@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getLot, listQualityRules, listMaterials, updateLot, createLedgerEntries, createPayout, getInvoice, updateInvoice } from "../../../../../lib/db";
+import { getLot, listQualityRules, listMaterials, listRates, updateLot, createLedgerEntries, createPayout, getInvoice, updateInvoice } from "../../../../../lib/db";
 import { supabase } from "../../../../../lib/supabase/client";
 import { calculateLotSettlement, paramQualityAccount } from "../../../../../lib/settlement/engine";
 import type { LedgerEntry } from "../../../../../lib/types";
+import { r2, errMsg } from "../../../../../lib/utils";
 
 type Ctx = { params: Promise<{ id: string }> };
-
-function r2(n: number) { return Math.round(n * 100) / 100; }
-function errMsg(e: unknown) { return e instanceof Error ? e.message : JSON.stringify(e); }
 
 /**
  * POST /api/lots/[id]/settle
@@ -57,7 +55,10 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
         { status: 400 },
       );
     }
-    if (!lot.invoiceId) {
+    // Historical bulk-imported lots are exempt from the invoice pre-requisite — their real invoices
+    // pre-date the ERP. The invoice is auto-resolved later in this route from overrideReason.
+    const isHistoricalImport = lot.overrideReason?.startsWith("Historical import");
+    if (!lot.invoiceId && !isHistoricalImport) {
       return NextResponse.json(
         { error: `Tax Invoice to Sarvani must be generated before posting settlement for lot ${lot.documentRef}. Generate the invoice first from the Invoicing tab.` },
         { status: 400 },
@@ -79,8 +80,12 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       );
     }
 
-    // 2 — Resolve quality rule and material
-    const [rules, materials] = await Promise.all([listQualityRules(), listMaterials()]);
+    // 2 — Resolve quality rule and material; fetch rates only for historical imports (performance)
+    const [rules, materials, allRates] = await Promise.all([
+      listQualityRules(),
+      listMaterials(),
+      isHistoricalImport ? listRates() : Promise.resolve([]),
+    ]);
     const material = materials.find((m) => m.id === lot.materialId);
     const rule =
       rules.find((r) => r.id === lot.qualityRuleId) ??
@@ -111,10 +116,42 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     //   5101 netting: Dr cessBalance (customer) + Dr cessPaid (gate entry) = Cr cessTotal (supplier) → 0 ✓
     const grossNotional      = r2(lot.netWeight * calc.grossSaleRate);
     const customerReceivable = r2(calc.grossSaleValue - calc.cessBalance);
-    const spMargin           = r2(lot.akshayaMarginPerMT * lot.netWeight);
     const holdPenalty        = r2(lot.holdPenalty ?? 0);
-    const supplierPayable    = r2(calc.grossSaleValue - calc.cessTotal - spMargin - holdPenalty);
-    const today             = new Date().toISOString().slice(0, 10);
+
+    // Historical lots: derive margin from Rate Master purchase rate spread.
+    // Normal lots: use akshayaMarginPerMT stored during quality approval.
+    let spMargin: number;
+    if (isHistoricalImport) {
+      // Find purchase rate: supplier-specific first, then material-wide default
+      const purchaseRates = allRates.filter(
+        (r) => r.materialId === lot.materialId && r.rateType === "Purchase" &&
+               r.validFrom <= (lot.lotDate ?? "") &&
+               (r.validTo === null || r.validTo >= (lot.lotDate ?? "")),
+      );
+      const purchaseRate =
+        purchaseRates.find((r) => r.partyId === lot.supplierId) ??
+        purchaseRates.find((r) => r.partyId === null);
+
+      if (!purchaseRate) {
+        return NextResponse.json(
+          {
+            error: `No purchase rate found for ${lot.materialName} on ${lot.lotDate}. ` +
+                   `Go to Master Data → Rates → add a "Purchase" rate for ${lot.materialName} ` +
+                   `(supplier-specific or material-wide) valid from before ${lot.lotDate}.`,
+          },
+          { status: 400 },
+        );
+      }
+      // Margin = sale value − (net weight × purchase rate). Supplier pays full cess.
+      spMargin = r2(calc.grossSaleValue - lot.netWeight * purchaseRate.rate);
+    } else {
+      // Normal procurement flow: margin was set during quality approval
+      spMargin = r2(lot.akshayaMarginPerMT * lot.netWeight);
+    }
+
+    const supplierPayable = r2(calc.grossSaleValue - calc.cessTotal - spMargin - holdPenalty);
+    // Use the lot's own date so historical imports land in the correct fiscal year.
+    const entryDate         = lot.lotDate ?? new Date().toISOString().slice(0, 10);
     // ref already declared above in the idempotency guard — reuse it here.
 
     const entries: Omit<LedgerEntry, "id">[] = [];
@@ -124,7 +161,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
       debit: number, credit: number, narration: string,
       partyId: string | null = null, partyName: string | null = null,
     ): Omit<LedgerEntry, "id"> => ({
-      entryDate: today, accountCode, accountName,
+      entryDate, accountCode, accountName,
       partyId, partyName,
       debit, credit, runningBalance: 0,
       narration,
@@ -148,11 +185,37 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     //      net receivable to 1201, cess + quality deductions separately).
     //      This preserves backward compatibility for lots settled before invoicing.
 
+    // For historical lots without a linked invoiceId, try to resolve it from overrideReason.
+    // overrideReason format: "Historical import — MC ded ₹X | Inv INV-XXXX"
+    let resolvedInvoiceId = lot.invoiceId ?? null;
+    if (isHistoricalImport && !resolvedInvoiceId && lot.overrideReason) {
+      const invMatch = lot.overrideReason.match(/\| Inv (.+)$/);
+      if (invMatch) {
+        const { data: foundInv } = await supabase
+          .from("invoices")
+          .select("id, linked_lot_ids")
+          .eq("invoice_no", invMatch[1].trim())
+          .single();
+        if (foundInv?.id) {
+          resolvedInvoiceId = foundInv.id;
+          // Back-fill lot.invoiceId so it's in sync going forward
+          await supabase.from("inward_lots").update({ invoice_id: resolvedInvoiceId }).eq("id", lot.id);
+          // Back-fill invoice's linked_lot_ids
+          const existing = (foundInv.linked_lot_ids ?? []) as string[];
+          if (!existing.includes(lot.id)) {
+            await supabase.from("invoices")
+              .update({ linked_lot_ids: [...existing, lot.id] })
+              .eq("id", resolvedInvoiceId);
+          }
+        }
+      }
+    }
+
     let invoiceNo = lot.documentRef; // fallback narration ref
-    if (lot.invoiceId) {
+    if (resolvedInvoiceId) {
       // Path A — Credit Note for deductions
       try {
-        const linkedInvoice = await getInvoice(lot.invoiceId);
+        const linkedInvoice = await getInvoice(resolvedInvoiceId);
         invoiceNo = linkedInvoice.invoiceNo;
       } catch { /* keep fallback */ }
 
@@ -186,12 +249,12 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
         ));
       }
 
-      if (lot.invoiceId && deductionDelta > 0) {
+      if (deductionDelta > 0) {
         try {
-          const inv = await getInvoice(lot.invoiceId);
+          const inv = await getInvoice(resolvedInvoiceId);
           const newDue = r2(Math.max(0, inv.amountDue - deductionDelta));
           const newStatus = newDue < 0.01 ? "Paid" : inv.status === "Paid" ? "Paid" : "Approved";
-          await updateInvoice(lot.invoiceId, { amountDue: newDue, status: newStatus });
+          await updateInvoice(resolvedInvoiceId, { amountDue: newDue, status: newStatus });
         } catch { /* non-fatal */ }
       }
     } else {
@@ -270,10 +333,11 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
         entries.push(mk("2101", "Supplier Payable",     0,                 r2(calc.cessPaid), reimb, lot.supplierId || null, lot.supplierName || null));
       }
 
+      const marginPerMT = lot.netWeight > 0 ? r2(spMargin / lot.netWeight) : 0;
       entries.push(mk(
         "3200", "Akshaya Trading Margin",
         0, spMargin,
-        `Margin ₹${lot.akshayaMarginPerMT}/MT × ${lot.netWeight.toFixed(3)} MT | Challan ${lot.documentRef}`,
+        `Margin ₹${marginPerMT.toLocaleString("en-IN")}/MT × ${lot.netWeight.toFixed(3)} MT | Challan ${lot.documentRef}`,
       ));
 
       if (holdPenalty > 0) {
@@ -297,7 +361,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
     // the lot queue column always reflects what was actually posted to the ledger.
     // Terminal status: "Invoiced" if this lot was already linked to a Tax Invoice
     // (Credit Note path above), otherwise "Settled" for post-settlement invoicing later.
-    const finalStatus = lot.invoiceId ? "Invoiced" : "Settled";
+    const finalStatus = resolvedInvoiceId ? "Invoiced" : "Settled";
 
     await createLedgerEntries(entries);
     const settled = await updateLot(id, {
@@ -329,7 +393,7 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
           farmerName:    payeeName,
           inwardLotId:   lot.id,
           documentRef:   lot.documentRef,
-          payoutDate:    today,
+          payoutDate:    entryDate,
           materialName:  lot.materialName,
           quantity:      calc.netPayableWeight,
           rate:          calc.grossSaleRate,

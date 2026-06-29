@@ -863,7 +863,7 @@ function ModelATab() {
         errorSummary: (data.errorSummary as UploadResult["errorSummary"]) ?? { total: 0, byProduct: [], errors: [] },
       });
       if (data.skipDetails && (data.skipDetails as string[]).length > 0) {
-        console.warn("Skipped lots:", data.skipDetails);
+        // skip details surfaced in errorSummary — no console needed
       }
       load();
     } catch (err) {
@@ -1017,6 +1017,7 @@ function ModelATab() {
           rule={previewRule}
           allRules={qualityRules}
           material={materials.find((m) => m.id === previewLot.materialId)}
+          rates={rates}
           onClose={() => setPreviewLot(null)}
           onApprove={previewLot.status === "Approved" ? async () => {
             try {
@@ -1063,9 +1064,7 @@ function ModelATab() {
                 const fd = new FormData(); fd.append("pdf", pdfFile);
                 const res = await fetch("/api/lots/pdf-debug", { method: "POST", body: fd });
                 const d = await res.json();
-                console.log("=== PDF RAW TEXT ===\n", d.raw);
-                console.log("=== PDF LINES ===\n", d.lines?.join("\n"));
-                alert("PDF text dumped to browser console (F12 → Console)");
+                alert(`PDF raw text:\n\n${d.raw ?? "(empty)"}\n\nLines:\n${d.lines?.join("\n") ?? "(none)"}`);
               }}
               disabled={!pdfFile}
               className="btn btn-ghost flex items-center gap-1.5 py-2 text-xs disabled:opacity-50"

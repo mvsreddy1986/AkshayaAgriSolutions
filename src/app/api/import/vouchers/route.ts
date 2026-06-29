@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createVoucher, createLedgerEntries, listParties } from "../../../../lib/db";
 import type { LedgerEntry } from "../../../../lib/types";
+import { r2, errMsg } from "../../../../lib/utils";
 
 export const dynamic = "force-dynamic";
-
-function r2(n: number) { return Math.round(n * 100) / 100; }
-function errMsg(e: unknown) { return e instanceof Error ? e.message : String(e); }
 
 interface VoucherRow {
   date: string;

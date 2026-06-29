@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getInvoice, updateInvoice, listLots, updateLot, createLedgerEntries } from "../../../../../lib/db";
 import type { LedgerEntry } from "../../../../../lib/types";
+import { r2 } from "../../../../../lib/utils";
 
 type Ctx = { params: Promise<{ id: string }> };
-function r2(n: number) { return Math.round(n * 100) / 100; }
 
 export async function POST(req: NextRequest, ctx: Ctx) {
   try {

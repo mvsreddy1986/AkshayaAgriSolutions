@@ -1,7 +1,8 @@
 "use client";
 import { useMemo, useState } from "react";
 import { calculateLotSettlement, validateLotForSettlement, paramQualityAccount } from "@/lib/settlement/engine";
-import type { InwardLot, QualityRule, MaterialParam, Material } from "@/lib/types";
+import type { InwardLot, QualityRule, MaterialParam, Material, RateMaster } from "@/lib/types";
+import { r2 } from "@/lib/utils";
 
 interface Props {
   lot: InwardLot;
@@ -9,13 +10,13 @@ interface Props {
   allRules: QualityRule[];
   materialParams?: MaterialParam[];
   material?: Material;
+  rates?: RateMaster[];
   onClose: () => void;
   onApprove?: () => void;
 }
 
 const inr = (n: number) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(n);
-const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /* ── tiny primitives ──────────────────────────────────────────── */
 
@@ -58,7 +59,7 @@ function SubtotalBar({ label, sub, value, accent }: { label: string; sub?: strin
 
 /* ── main component ───────────────────────────────────────────── */
 
-export default function SettlementPreview({ lot, rule, allRules, materialParams, material, onClose, onApprove }: Props) {
+export default function SettlementPreview({ lot, rule, allRules, materialParams, material, rates, onClose, onApprove }: Props) {
   const [confirming, setConfirming] = useState(false);
   const gstRate = (material?.gstRate ?? 0) / 100;
 
@@ -76,8 +77,28 @@ export default function SettlementPreview({ lot, rule, allRules, materialParams,
   const holdTriggers = calc?.paramCalcs.filter(c => c.rejectTrigger) ?? [];
   const infoParams   = calc?.paramCalcs.filter(c => c.weightDeductionKg === 0 && c.valueDeduction === 0 && !c.rejectTrigger) ?? [];
 
-  const grossNotional      = calc ? r2(calc.netWeight * calc.grossSaleRate) : 0;
-  const spMargin           = calc ? r2(lot.akshayaMarginPerMT * lot.netWeight) : 0;
+  const grossNotional = calc ? r2(calc.netWeight * calc.grossSaleRate) : 0;
+
+  // For historical bulk-imported lots, derive margin from Rate Master purchase rate (same logic as settle API).
+  // For new lots created through procurement, use the stored akshayaMarginPerMT.
+  const isHistoricalImport = lot.overrideReason?.startsWith("Historical import");
+  const purchaseRate = isHistoricalImport && rates && calc
+    ? (() => {
+        const validRates = rates.filter(
+          (r) => r.materialId === lot.materialId && r.rateType === "Purchase" &&
+                 r.validFrom <= (lot.lotDate ?? "") &&
+                 (r.validTo === null || r.validTo >= (lot.lotDate ?? "")),
+        );
+        return validRates.find((r) => r.partyId === lot.supplierId) ?? validRates.find((r) => r.partyId === null);
+      })()
+    : undefined;
+
+  const spMargin = calc
+    ? purchaseRate
+      ? r2(calc.grossSaleValue - lot.netWeight * purchaseRate.rate)
+      : r2(lot.akshayaMarginPerMT * lot.netWeight)
+    : 0;
+
   // settlementPayable = grossSaleValue − cessTotal − margin (posted to 2101 in settlement)
   // cessPaid is added back to 2101 via Dr 5101 / Cr 2101 at settlement → single payment to supplier
   const settlementPayable  = calc ? r2(calc.grossSaleValue - calc.cessTotal - spMargin - (lot.holdPenalty ?? 0)) : 0;
@@ -325,7 +346,9 @@ export default function SettlementPreview({ lot, rule, allRules, materialParams,
                 <div className="px-4">
                   <StatementRow
                     label="Akshaya Margin"
-                    sub={`₹${lot.akshayaMarginPerMT}/MT × ${lot.netWeight.toFixed(3)} MT`}
+                    sub={purchaseRate
+                      ? `₹${purchaseRate.rate.toLocaleString("en-IN")}/MT purchase rate (Rate Master)`
+                      : `₹${lot.akshayaMarginPerMT}/MT × ${lot.netWeight.toFixed(3)} MT`}
                     value={inr(spMargin)}
                     minus
                   />

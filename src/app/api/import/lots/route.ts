@@ -5,25 +5,12 @@ import {
 } from "../../../../lib/db";
 import { supabase } from "../../../../lib/supabase/client";
 import type { LedgerEntry } from "../../../../lib/types";
+import { r2, errMsg } from "../../../../lib/utils";
 
 export const dynamic = "force-dynamic";
 
-function r2(n: number) { return Math.round(n * 100) / 100; }
-function errMsg(e: unknown) { return e instanceof Error ? e.message : String(e); }
-
 interface LotRow {
-  po_number: string;
-  unloading_date: string;     // YYYY-MM-DD
-  vehicle_no: string;
-  supplier: string;           // supplier company name (matched to parties)
-  net_wt_kg: string;          // kg — converted to MT for storage (÷1000)
-  po_rate_per_kg: string;     // ₹/kg charged to Sarvani — stored as ₹/MT (×1000)
-  supplier_rate_per_kg: string; // ₹/kg paid to supplier
-  cess_paid_rs: string;       // ₹ cess already paid at gate (Dr 5101 / Cr 1100)
-  balance_cess_rs: string;    // ₹ cess balance deducted from supplier (reduces 2101)
-  moisture_pct: string;       // % moisture reading
-  mc_deduction_rs: string;    // ₹ moisture content deduction from supplier
-  status: string;             // Settled / Approved / Draft
+  [key: string]: string | undefined; // flexible — any column name accepted
 }
 
 export async function POST(req: NextRequest) {
@@ -52,20 +39,23 @@ export async function POST(req: NextRequest) {
       const rowNum = i + 2; // header is row 1
 
       try {
-        // ── Parse and validate ────────────────────────────────────────────────
-        const poNo    = row.po_number?.trim();
-        const lotDate = row.unloading_date?.trim();
-        const netWtKg = parseFloat(row.net_wt_kg)          || 0;
-        const poRate  = parseFloat(row.po_rate_per_kg)      || 0; // ₹/kg
-        const supRate = parseFloat(row.supplier_rate_per_kg)|| 0; // ₹/kg
-        const cessPd  = parseFloat(row.cess_paid_rs)        || 0; // ₹
-        const cessBal = parseFloat(row.balance_cess_rs)     || 0; // ₹
-        const mcDed   = parseFloat(row.mc_deduction_rs)     || 0; // ₹
-        const moistPct= parseFloat(row.moisture_pct)        || 0;
-        const lotStatus = (row.status?.trim() || "Settled") as
+        // ── Parse fields — accepts any common column name variant ─────────────
+        const poNo     = (row.challan_no ?? row.po_number ?? row.lot_number ?? row["lot no"] ?? row["lot number"] ?? row["bill no"] ?? "").trim();
+        const lotDate  = (row.unloading_date ?? row["unloading date"] ?? "").trim();
+        const netWtKg  = parseFloat(row.net_wt_kg ?? row["net wt kg"] ?? "0") || 0;
+        const grossWtKg= parseFloat(row.gross_wt_kg ?? row["gross wt kg"] ?? "0") || netWtKg;
+        const tareWtKg = parseFloat(row.tare_wt_kg  ?? row["tare wt kg"]  ?? "0") || 0;
+        const poRate   = parseFloat(row.po_rate_per_kg       ?? "0") || 0; // ₹/kg
+        const supRate  = parseFloat(row.supplier_rate_per_kg ?? "0") || 0; // ₹/kg
+        const cessPd   = parseFloat(row.cess_paid_rs   ?? "0") || 0;
+        const cessBal  = parseFloat(row.balance_cess_rs ?? "0") || 0;
+        const mcDed    = parseFloat(row.mc_deduction_rs ?? "0") || 0;
+        const moistPct = parseFloat(row.moisture_pct    ?? "0") || 0;
+        const invoiceNo= (row.invoice_no ?? row["invoice no"] ?? row.invoice_number ?? "").trim();
+        const lotStatus= (row.status?.trim() || "Draft") as
           "Draft" | "Mapped" | "QualityHold" | "Approved" | "Settled" | "Invoiced";
 
-        if (!poNo) { errors.push(`Row ${rowNum}: po_number is required`); continue; }
+        if (!poNo) { errors.push(`Row ${rowNum}: challan_no is required`); continue; }
         if (!/^\d{4}-\d{2}-\d{2}$/.test(lotDate)) {
           errors.push(`Row ${rowNum} (${poNo}): unloading_date must be YYYY-MM-DD`); continue;
         }
@@ -73,36 +63,59 @@ export async function POST(req: NextRequest) {
         if (poRate  <= 0) { errors.push(`Row ${rowNum} (${poNo}): po_rate_per_kg must be > 0`); continue; }
         if (supRate <= 0) { errors.push(`Row ${rowNum} (${poNo}): supplier_rate_per_kg must be > 0`); continue; }
 
-        // ── Idempotency: skip if PO number already exists ─────────────────────
+        if (!sarvani?.id) {
+          errors.push(`Row ${rowNum} (${poNo}): Cannot find Sarvani Biofuels in Parties master. Add it under Master Data → Parties first.`);
+          continue;
+        }
+
+        // ── Idempotency: skip if challan already exists ───────────────────────
         const { count: existing } = await supabase
           .from("inward_lots")
           .select("id", { count: "exact", head: true })
           .eq("document_ref", poNo);
         if ((existing ?? 0) > 0) {
-          errors.push(`Row ${rowNum}: PO "${poNo}" already exists — skipped`);
+          errors.push(`Row ${rowNum}: Challan "${poNo}" already exists — skipped`);
           continue;
         }
 
-        // ── Unit conversions (user inputs kg / ₹per-kg; ERP stores MT / ₹per-MT) ──
-        const netWtMT       = r2(netWtKg / 1000);          // MT
-        const grossSaleRate = r2(poRate  * 1000);           // ₹/MT
-        const supplierRate  = r2(supRate * 1000);           // ₹/MT (for reference)
+        // ── Resolve invoice link (if invoice_no provided) ─────────────────────
+        let resolvedInvoiceId: string | null = null;
+        if (invoiceNo) {
+          const { data: inv } = await supabase
+            .from("invoices")
+            .select("id")
+            .eq("invoice_no", invoiceNo)
+            .single();
+          if (inv?.id) resolvedInvoiceId = inv.id;
+          else errors.push(`Row ${rowNum} (${poNo}): Invoice "${invoiceNo}" not found — lot created without invoice link`);
+        }
+
+        // ── Unit conversions (kg → MT, ₹/kg → ₹/MT) ─────────────────────────
+        const netWtMT    = r2(netWtKg  / 1000);
+        const grossWtMT  = r2(grossWtKg / 1000);
+        const tareWtMT   = r2(tareWtKg  / 1000);
+        const grossSaleRate = r2(poRate * 1000);           // ₹/MT
+        const supplierRate  = r2(supRate * 1000);          // ₹/MT
 
         // ── Financial calculations ─────────────────────────────────────────────
-        // grossSaleValue = what Sarvani owes Akshaya
-        const grossSaleValue = r2(netWtMT * grossSaleRate);
-        // supplierGross (D) = netWtKg × supRate = what supplier earns before deductions
-        const supplierGross  = r2(netWtKg * supRate);
-        // supplierNetPayable (G = D − E − F) = what Akshaya actually pays
+        const grossSaleValue     = r2(netWtMT * grossSaleRate);
+        const supplierGross      = r2(netWtKg * supRate);
         const supplierNetPayable = r2(supplierGross - cessBal - mcDed);
-        // akshaya margin = revenue − supplier net payable (includes rate spread + deductions kept)
-        const akshayaMargin = r2(grossSaleValue - supplierNetPayable);
-        // For akshayaMarginPerMT field (₹/MT) — derived from total margin / MT
-        const akshayaMarginPerMT = netWtMT > 0 ? r2(akshayaMargin / netWtMT) : 50;
+        const akshayaMargin      = r2(grossSaleValue - supplierNetPayable);
+        // Use explicit margin from CSV if provided, otherwise derive from rate spread
+        const explicitMarginPMT  = parseFloat(row.akshaya_margin_per_mt ?? row["margin per mt"] ?? "0") || 0;
+        const akshayaMarginPerMT = explicitMarginPMT > 0
+          ? explicitMarginPMT
+          : (netWtMT > 0 ? r2(akshayaMargin / netWtMT) : 50);
 
-        // ── Find matching parties ─────────────────────────────────────────────
-        const supplier  = partyByName.get(row.supplier?.toLowerCase().trim() ?? "");
-        const material  = matByName.get("maize") ?? defaultMat; // default to first active material
+        // ── Find matching parties and material ────────────────────────────────
+        const supplier = partyByName.get(row.supplier?.toLowerCase().trim() ?? "");
+        const material = matByName.get("maize") ?? defaultMat;
+
+        if (!material?.id) {
+          errors.push(`Row ${rowNum} (${poNo}): No active material found. Add at least one material under Master Data → Materials first.`);
+          continue;
+        }
 
         // ── Create lot ────────────────────────────────────────────────────────
         const lot = await createLot({
@@ -118,8 +131,8 @@ export async function POST(req: NextRequest) {
           farmerId:       null,
           farmerName:     null,
           vehicleNo:      row.vehicle_no?.trim() ?? "",
-          grossWeight:    netWtMT,   // gross = net for historical (tare from PDF, not available)
-          tareWeight:     0,
+          grossWeight:    grossWtMT,
+          tareWeight:     tareWtMT,
           netWeight:      netWtMT,
           acceptedWeight: netWtMT,
           qualityReadings: { moisture_pct: moistPct },
@@ -129,14 +142,34 @@ export async function POST(req: NextRequest) {
           netPayableWeight: netWtMT,
           grossSaleRate,
           grossSaleValue,
-          importBatchId:  batchRef,
-          invoiceId:      null,
-          status:         "Draft",   // always start Draft; update after ledger entries
-          overrideReason: `Historical import — gross/tare from PDF; MC ded ₹${mcDed}`,
+          importBatchId:  null,
+          invoiceId:      resolvedInvoiceId,
+          // "Settled"/"Invoiced" in CSV → store as "Approved" so user can run settlement immediately.
+          // "Draft" stays Draft so lot appears in procurement active queue.
+          status: (["Settled", "Invoiced", "Approved"].includes(lotStatus) ? "Approved" : "Draft") as "Draft" | "Approved",
+          overrideReason: `Historical import — MC ded ₹${mcDed}${invoiceNo ? ` | Inv ${invoiceNo}` : ""}`,
           akshayaMarginPerMT,
           holdPenalty:    0,
           holdPenaltyNote: null,
         });
+
+        // ── Link lot to invoice (add to invoice's linked_lot_ids) ────────────
+        if (resolvedInvoiceId) {
+          const { data: inv } = await supabase
+            .from("invoices")
+            .select("linked_lot_ids")
+            .eq("id", resolvedInvoiceId)
+            .single();
+          if (inv) {
+            const existing = (inv.linked_lot_ids ?? []) as string[];
+            if (!existing.includes(lot.id)) {
+              await supabase
+                .from("invoices")
+                .update({ linked_lot_ids: [...existing, lot.id] })
+                .eq("id", resolvedInvoiceId);
+            }
+          }
+        }
 
         // ── Post ledger entries for settled/invoiced lots ─────────────────────
         //
@@ -211,7 +244,10 @@ export async function POST(req: NextRequest) {
             });
           }
 
-          await updateLot(lot.id, { status: "Settled", grossSaleValue, netPayableWeight: netWtMT });
+          // Keep lot as Draft (not Settled) so it appears in the procurement
+          // active queue. Settlement entries are already posted — the settle
+          // route's idempotency guard (source_ref check) prevents double-posting.
+          await updateLot(lot.id, { grossSaleValue, netPayableWeight: netWtMT });
         }
 
         created.push(poNo);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminSupabase } from "../../../../lib/supabase/admin";
+import { errMsg } from "../../../../lib/utils";
 
 export const TRANSACTIONAL: { table: string; label: string }[] = [
   { table: "ledger_entries",  label: "Ledger entries" },
@@ -11,7 +12,6 @@ export const TRANSACTIONAL: { table: string; label: string }[] = [
   { table: "import_batches",  label: "Import batches" },
 ];
 
-function errMsg(e: unknown) { return e instanceof Error ? e.message : JSON.stringify(e); }
 
 /** GET — row counts for the preview */
 export async function GET() {
